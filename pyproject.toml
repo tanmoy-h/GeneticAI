@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genomorph"
+version = "0.1.0"
+description = "Bio-related Reasoning with Language Models"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    # ── Core ML ──────────────────────────────────────────────────────────────
+    # torch/torchvision/torchaudio are installed separately by sh_setup_env.sh
+    # because they require --index-url https://download.pytorch.org/whl/cu128
+    "transformers==4.57.6",
+    "accelerate>=1.2.0",
+    "datasets>=3.0.0",
+    "peft>=0.14.0",
+    "pytorch_lightning>=2.4.0",
+    # ── Training ─────────────────────────────────────────────────────────────
+    # Verified working stack: torch 2.9.0+cu128, transformers 4.57.6
+    "trl==1.0.0",
+    "vllm==0.11.2",
+    "bitsandbytes>=0.45.0",
+    "deepspeed>=0.16.0",
+    # ── Utilities ────────────────────────────────────────────────────────────
+    "qwen-vl-utils>=0.0.8",
+    "wandb>=0.19.0",
+    "ninja",
+    "packaging",
+    "jupyter",
+]
+
+[project.optional-dependencies]
+# pip install -e ".[dev]"   — adds test/lint tools
+dev = [
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "isort>=5.13.0",
+    "mypy>=1.8.0",
+]
+# pip install -e ".[evo2]"  — adds Evo2 DNA encoder
+evo2 = [
+    "evo2",
+]
+# pip install -e ".[all]"   — everything
+all = [
+    "pytest>=8.0.0",
+    "black>=24.0.0",
+    "isort>=5.13.0",
+    "mypy>=1.8.0",
+    "evo2",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["genomorph*"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true 
