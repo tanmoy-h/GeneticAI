@@ -10,7 +10,7 @@
 ## Stage 2 Week 9: Offline HiRef alignment using Stage 1.5 checkpoint.
 ##
 ## Accepts plain .pt state dict from train_latent_sft.py (Stage 1.5).
-## hiref_offline_multigpu_w9.py supports both .ckpt (Stage 1) and .pt (Stage 1.5).
+## hiref_kegg_align.py supports both .ckpt (Stage 1) and .pt (Stage 1.5).
 ##
 ## Usage:
 ##   STAGE1_CKPT=<path/to/stage1_5/best/model.pt> bash week9tests/sh_stage2_hiref_w9.sh
@@ -76,13 +76,13 @@ if [ "$NUM_GPUS" -ge 2 ]; then
     echo "=== Stage 2 (Week 9) multi-GPU: shard 0 → cuda:0, shard 1 → cuda:1 (parallel) ==="
 
     echo "Shard 0 -> cuda:0  (log: $LOG0)"
-    stdbuf -oL -eL python -u hiref_offline_multigpu_w9.py \
+    stdbuf -oL -eL python -u hiref_kegg_align.py \
         "${common_args[@]}" --shard_idx 0 --device cuda:0 \
         2>&1 | tee "$LOG0" &
     PID0=$!
 
     echo "Shard 1 -> cuda:1  (log: $LOG1)"
-    stdbuf -oL -eL python -u hiref_offline_multigpu_w9.py \
+    stdbuf -oL -eL python -u hiref_kegg_align.py \
         "${common_args[@]}" --shard_idx 1 --device cuda:1 \
         2>&1 | tee "$LOG1" &
     PID1=$!
@@ -93,19 +93,19 @@ else
     echo "=== Stage 2 (Week 9) single-GPU: running 2 shards sequentially on cuda:0 ==="
 
     echo "Shard 0 -> cuda:0  (log: $LOG0)"
-    stdbuf -oL -eL python -u hiref_offline_multigpu_w9.py \
+    stdbuf -oL -eL python -u hiref_kegg_align.py \
         "${common_args[@]}" --shard_idx 0 --device cuda:0 \
         2>&1 | tee "$LOG0" || { echo "Shard 0 FAILED"; exit 1; }
 
     echo "Shard 1 -> cuda:0  (log: $LOG1)"
-    stdbuf -oL -eL python -u hiref_offline_multigpu_w9.py \
+    stdbuf -oL -eL python -u hiref_kegg_align.py \
         "${common_args[@]}" --shard_idx 1 --device cuda:0 \
         2>&1 | tee "$LOG1" || { echo "Shard 1 FAILED"; exit 1; }
 fi
 
 echo "=== Both shards done. Merging and running HiRef ==="
 LOG_MERGE=week9tests/logs/stage2_w9_merge_$(date +%Y%m%d_%H%M%S).log
-stdbuf -oL -eL python -u hiref_offline_multigpu_w9.py \
+stdbuf -oL -eL python -u hiref_kegg_align.py \
     --output_dir "$OUTPUT_DIR" \
     --num_shards 2 \
     --merge \

@@ -1,0 +1,112 @@
+#!/bin/bash
+#SBATCH --job-name=w9_stage1_50_anon
+#SBATCH --gres=gpu:1
+#SBATCH --mem=120G
+#SBATCH --time=10:00:00
+#SBATCH --cpus-per-task=8
+#SBATCH --output=week9tests/logs/stage1_50_w9_%j.out
+#SBATCH --error=week9tests/logs/stage1_50_w9_%j.err
+
+## Stage 1.5 Week 9: LatentSp cold-start SFT.
+##
+## Two entropy modes:
+##   ENTROPY_MODE=global  (default) — epoch-level recompute, 1 forward pass per
+##                                    curriculum step.  Faster.
+##   ENTROPY_MODE=inline            — per-batch entropy, matches LatentSp Algorithm 1
+##                                    exactly.  ~2x compute per batch.
+##
+## Usage:
+##   STAGE1_CKPT=<path> bash week9tests/sh_stage1_50_w9.sh [gpu_id]
+##   STAGE1_CKPT=<path> ENTROPY_MODE=inline bash week9tests/sh_stage1_50_w9.sh 0
+##   STAGE1_CKPT=<path> PASSES_PER_STEP=2 bash week9tests/sh_stage1_50_w9.sh 1
+
+## ── Configuration ─────────────────────────────────────────────────────────────
+CONDA_ENV=dna_env
+CACHE_DIR=~/.cache/huggingface
+WANDB_PROJECT=${WANDB_PROJECT:-dna-sft-week9-stage1-50}
+WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
+KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
+KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_50_anon}
+ENTROPY_MODE=${ENTROPY_MODE:-global}
+## ─────────────────────────────────────────────────────────────────────────────
+
+STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca/dna-sft-week8-ca-kegg-Qwen3-1.7B-20260512-221911/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
+
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    echo "ERROR: STAGE1_CKPT is not set."
+    echo "Usage: STAGE1_CKPT=<path> bash week9tests/sh_stage1_50_w9.sh [gpu_id]"
+    exit 1
+fi
+
+module load MLDL/miniconda3 2>/dev/null || true
+module load cuda/12.8        2>/dev/null || true
+conda activate $CONDA_ENV
+cd "$(dirname "$0")/.."
+mkdir -p week9tests/logs
+export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
+export CUDA_VISIBLE_DEVICES=${1:-0}
+
+## Compute train size for --max_entropy_samples
+if [ -n "$KEGG_CSV" ]; then
+    TRAIN_SIZE=$(python3 -c "
+from genomorph.dataset.kegg import load_kegg_from_anon_csv
+ds = load_kegg_from_anon_csv('$KEGG_CSV')
+print(len(ds['train']))
+" 2>/dev/null)
+else
+    TRAIN_SIZE=$(python3 -c "
+from datasets import load_dataset
+ds = load_dataset('$KEGG_DATASET', 'default', cache_dir='$CACHE_DIR')
+print(len(ds['train']))
+" 2>/dev/null)
+fi
+if [ -z "$TRAIN_SIZE" ] || [ "$TRAIN_SIZE" -le 0 ] 2>/dev/null; then
+    echo "WARNING: Could not read TRAIN_SIZE — falling back to max_entropy_samples=500"
+    TRAIN_SIZE=500
+fi
+
+LOG=week9tests/logs/stage1_50_w9_${ENTROPY_MODE}_$(date +%Y%m%d_%H%M%S).log
+mkdir -p week9tests/logs
+exec > >(tee "$LOG") 2>&1
+echo "Command:       bash $0 $*"
+echo "Logging to:    $LOG"
+echo "CUDA:          $CUDA_VISIBLE_DEVICES"
+echo "Stage 1 ckpt:  $STAGE1_CKPT"
+echo "Entropy mode:  $ENTROPY_MODE"
+echo "Passes/step:   ${PASSES_PER_STEP:-1}"
+echo "Output dir:    $OUTPUT_DIR"
+echo "KEGG dataset:  ${KEGG_CSV:-$KEGG_DATASET}"
+nvidia-smi
+
+## Build dataset arg: CSV takes priority over HF dataset name
+if [ -n "$KEGG_CSV" ]; then
+    KEGG_ARG="--kegg_csv $KEGG_CSV"
+else
+    KEGG_ARG="--kegg_dataset $KEGG_DATASET"
+fi
+
+stdbuf -oL -eL python train_latent_sft.py \
+    --stage1_ckpt            "$STAGE1_CKPT" \
+    $KEGG_ARG \
+    --output_dir             "$OUTPUT_DIR" \
+    --text_model_name        Qwen/Qwen3-1.7B \
+    --dna_model_name         evo2_7b_base \
+    --dna_embedding_layer    blocks.28.mlp.l3 \
+    --entropy_mode           "$ENTROPY_MODE" \
+    --max_latent_steps       4 \
+    --passes_per_step        ${PASSES_PER_STEP:-1} \
+    --data_refresh_ratio     0.1 \
+    --batch_size             1 \
+    --grad_accum             8 \
+    --learning_rate          5e-5 \
+    --max_length_text        6000 \
+    --max_length_dna         2048 \
+    --truncate_dna_per_side  1024 \
+    --entropy_batch_size     1 \
+    --max_entropy_samples    $TRAIN_SIZE \
+    --log_every              20 \
+    --wandb_project          "$WANDB_PROJECT" \
+    --wandb_entity           "$WANDB_ENTITY" \
+    --cache_dir              "$CACHE_DIR" \
+    --device                 cuda

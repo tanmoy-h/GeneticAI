@@ -1,53 +1,50 @@
 #!/bin/bash
-#SBATCH --job-name=w11_optB_grpo
+#SBATCH --job-name=w9_stage3_grpo
 #SBATCH --gres=gpu:2
 #SBATCH --mem=160G
 #SBATCH --time=16:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week11tests/logs/stage3_grpo_w9_optB_%j.out
-#SBATCH --error=week11tests/logs/stage3_grpo_w9_optB_%j.err
+#SBATCH --output=week9tests/logs/stage3_grpo_w9_%j.out
+#SBATCH --error=week9tests/logs/stage3_grpo_w9_%j.err
 
-## Stage 3 Option B: learnable theta_low via REINFORCE.
+## Stage 3 Week 9: GRPO + entropy-conditioned dual-mode reasoning.
+##   Engine: train_grpo_latent_reasoning.py
 ##
-## Identical to the w9 GRPO run except theta_low is an nn.Parameter trained
-## end-to-end alongside the main GRPO objective:
-##
-##   p_latent = sigmoid(alpha * (theta_low - entropy))
-##   theta_loss = -adv_mean * mean(log π(decisions))
-##
-## What to watch in the log / WandB:
-##   train/theta_low_param   — should move away from init (1.0) over training
-##   train/theta_low_eff     — effective theta = param * warmup_scale
-##   train/theta_low_loss    — REINFORCE signal (non-zero after step ~800)
-##   train/n_latent_decisions — decisions per step (non-zero after warmup)
-##   train/gate_latent_steps — latent steps fired in generation
-##   No NaN loss / no crash  — mechanisms stable
+## Three mechanisms:
+##   1. HRPO gate (always)     — input-embedding DNA conditioning
+##   2. LatentSp latent steps     — entropy < theta_low → recycle h_{t-1}, skip token
+##   3. DNA hidden injection   — entropy > theta_high → inject u_dna into h_t
 ##
 ## Usage:
-##   STAGE1_CKPT=<path/to/stage1_51/model.pt> bash week11tests/sh_stage3_grpo_w9_optB.sh [gpu_ids]
-##   RESUME=1 STAGE1_CKPT=<path> bash week11tests/sh_stage3_grpo_w9_optB.sh
+##   STAGE1_CKPT=<path/to/stage1_5/best/model.pt> bash week9tests/sh_stage3_grpo_w9.sh [gpu_ids]
+##   STAGE1_CKPT=<path> STAGE2_DIR=stage2_output_w9 bash week9tests/sh_stage3_grpo_w9.sh 0,1
+##   RESUME=1 STAGE1_CKPT=<path> bash week9tests/sh_stage3_grpo_w9.sh
+##
+## Notes:
+##   - STAGE1_CKPT should be the Stage 1.5 SFT best/model.pt
+##   - STAGE2_DIR enables manifold alignment loss (optional)
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
-WANDB_PROJECT=${WANDB_PROJECT:-dna-grpo-optB}
+WANDB_PROJECT=${WANDB_PROJECT:-dna-grpo-week9}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week11tests/stage3_grpo_optB}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage3_grpo_w9}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
-STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}    # manifold loss source (w9 HiRef output)
+STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}   # set to "" to skip manifold alignment
 ## ─────────────────────────────────────────────────────────────────────────────
 
-## Use Stage 1.5.1 SFT weights as the starting point (same as w9 Stage 3)
+## Stage 1.5-with-gate best checkpoint (gate-adapted model)
 STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01/model.pt}
-## Gate/injector from Stage 1.5.1 (pre-trained alongside SFT, same as w9)
+## Gate weights from the same Stage 1.5-with-gate run
 GATE_CKPT_DIR=${GATE_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01}
-GATE_CKPT=${GATE_CKPT:-${GATE_CKPT_DIR:+${GATE_CKPT_DIR}/thinking_gate.pt}}
-INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR:+${GATE_CKPT_DIR}/dna_injector.pt}}
+GATE_CKPT=${GATE_CKPT:-${GATE_CKPT_DIR}/thinking_gate.pt}
+INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR}/dna_injector.pt}
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."
-    echo "Usage: STAGE1_CKPT=<path> bash week11tests/sh_stage3_grpo_w9_optB.sh [gpu_ids]"
+    echo "Usage: STAGE1_CKPT=<path> bash week9tests/sh_stage3_grpo_w9.sh [gpu_ids]"
     exit 1
 fi
 
@@ -55,7 +52,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week11tests/logs
+mkdir -p week9tests/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export WANDB_PROJECT
@@ -79,12 +76,12 @@ if [ -z "$TRAIN_SIZE" ] || [ "$TRAIN_SIZE" -le 0 ] 2>/dev/null; then
 else
     STEPS_PER_EPOCH=$(( (TRAIN_SIZE * NUM_GENERATIONS + PER_DEVICE_BATCH * NUM_GPUS * GRAD_ACCUM - 1) / (PER_DEVICE_BATCH * NUM_GPUS * GRAD_ACCUM) ))
     SAVE_STEPS=$(( STEPS_PER_EPOCH / 3 ))
-    [ "$SAVE_STEPS" -le 0 ] && SAVE_STEPS=400
+    [ "$SAVE_STEPS" -le 0 ] && SAVE_STEPS=500
 fi
 TOTAL_STEPS=$(( STEPS_PER_EPOCH * 3 ))
 
-LOG=week11tests/logs/stage3_grpo_w9_optB_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week11tests/logs
+LOG=week9tests/logs/stage3_grpo_w9_$(date +%Y%m%d_%H%M%S).log
+mkdir -p week9tests/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to:  $LOG"
@@ -94,6 +91,7 @@ echo "Save every: $SAVE_STEPS steps"
 echo "Stage1 ckpt: $STAGE1_CKPT"
 echo "Output dir:  $OUTPUT_DIR"
 echo "Stage 2 dir: ${STAGE2_DIR:-<none>}"
+echo "DNA cache:   ${DNA_CACHE:-<not set>}"
 nvidia-smi
 
 args=(
@@ -113,7 +111,7 @@ args=(
     --max_length_dna         2048
     --truncate_dna_per_side  1024
 
-    ## HRPO gate
+    ## HRPO gate (input-embedding level)
     --use_hrpo_gate          True
     --use_dna_gate           False
     --gate_reg_weight        0.001
@@ -122,20 +120,13 @@ args=(
     --max_latent_steps       1
     --min_latent_steps       0
 
-    ## LatentSp — learnable theta_low (Option B)
-    ## theta_low_init: starting value; will be learned via REINFORCE after warmup
-    ## theta_low_lr:   dedicated LR for theta_low_param (~20x base LR)
-    ## theta_low_weight: REINFORCE loss scale (0.1 → ~10% of total loss)
-    ## theta_low_alpha: sigmoid temperature (keep fixed)
+    ## LatentSp + DNA hidden injection (w9)
     --latentSp_theta_low        1.0
     --latentSp_theta_high       3.0
     --latentSp_max_consec       3
-    --latent_lookahead_k        3
+    --latent_lookahead_k     3
     --latentSp_warmup_steps     400
     --latentSp_ramp_steps       400
-    --theta_low_lr           1e-4
-    --theta_low_weight       0.1
-    --theta_low_alpha        5.0
 
     ## GRPO
     --num_generations        8
@@ -179,16 +170,16 @@ if [ -n "${STAGE2_DIR:-}" ]; then
     args+=(--stage2_dir "$STAGE2_DIR")
 fi
 
-## Gate/injector checkpoint
+## Gate from Stage 1.5-with-gate (gate_warmup_steps=0 → no warmup discontinuity)
 if [ -n "${GATE_CKPT:-}" ] && [ -f "$GATE_CKPT" ]; then
     echo "Gate ckpt: $GATE_CKPT"
     args+=(--gate_ckpt "$GATE_CKPT")
-    [ -f "${INJECTOR_CKPT:-}" ] && args+=(--injector_ckpt "$INJECTOR_CKPT")
+    [ -f "$INJECTOR_CKPT" ] && args+=(--injector_ckpt "$INJECTOR_CKPT")
 else
-    echo "INFO: No GATE_CKPT set — gate/injector start fresh"
+    echo "WARNING: GATE_CKPT not found ($GATE_CKPT) — gate starts fresh + gate_warmup_steps=0 means instant activation; set GATE_CKPT_DIR or run Stage 1.5 with --use_gate first"
 fi
 
-## DNA embedding cache
+## Optional DNA embedding cache (skips Evo2 at training time, frees ~14 GB VRAM)
 if [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ]; then
     echo "DNA cache enabled: $DNA_CACHE"
     args+=(--dna_cache "$DNA_CACHE")
@@ -218,7 +209,7 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
-ACCEL_CFG=/tmp/accelerate_ddp_optB_${$}.yaml
+ACCEL_CFG=/tmp/accelerate_ddp_grpo_w9_${$}.yaml
 cat > "$ACCEL_CFG" << EOF
 compute_environment: LOCAL_MACHINE
 distributed_type: MULTI_GPU
@@ -241,17 +232,9 @@ cp "$ACCEL_CFG" "$DEFAULT_ACCEL" 2>/dev/null || true
 ACCELERATE_USE_DEEPSPEED=false \
 stdbuf -oL -eL accelerate launch \
     --config_file "$ACCEL_CFG" \
-    adaptive_thinking_residual_w9_optB.py "${args[@]}"
+    train_grpo_latent_reasoning.py "${args[@]}"
 
 if [ -f "${DEFAULT_ACCEL}.bak_$$" ]; then
     mv "${DEFAULT_ACCEL}.bak_$$" "$DEFAULT_ACCEL"
     echo "Restored original accelerate config"
 fi
-
-echo ""
-echo "=== Option B complete. Check WandB for: ==="
-echo "  train/theta_low_param   — learned threshold (init=1.0, should move)"
-echo "  train/theta_low_eff     — effective threshold after warmup scale"
-echo "  train/theta_low_loss    — REINFORCE signal (non-zero after step ~800)"
-echo "  train/n_latent_decisions — decisions per step (non-zero after warmup)"
-echo "  train/gate_latent_steps — latent steps fired per generation"

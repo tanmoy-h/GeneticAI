@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=w9_test_latentSp
+#SBATCH --job-name=w9_test_latentSp_anon
 #SBATCH --gres=gpu:2
 #SBATCH --mem=160G
 #SBATCH --time=02:00:00
@@ -25,8 +25,8 @@ CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 WANDB_PROJECT=${WANDB_PROJECT:-dna-grpo-week9-test}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
-KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/test_latentSp}
+KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/test_latentSp_anon}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ nvidia-smi
 
 args=(
     --sft_checkpoint         "$STAGE1_CKPT"
-    --dataset_name           "$KEGG_DATASET"
+    --kegg_csv               "$KEGG_CSV"
     --output_dir             "$OUTPUT_DIR"
     --cache_dir              "$CACHE_DIR"
 
@@ -166,7 +166,7 @@ cp "$ACCEL_CFG" "$DEFAULT_ACCEL" 2>/dev/null || true
 ACCELERATE_USE_DEEPSPEED=false \
 stdbuf -oL -eL accelerate launch \
     --config_file "$ACCEL_CFG" \
-    adaptive_thinking_residual_w9.py "${args[@]}"
+    train_grpo_latent_reasoning.py "${args[@]}"
 
 if [ -f "${DEFAULT_ACCEL}.bak_$$" ]; then
     mv "${DEFAULT_ACCEL}.bak_$$" "$DEFAULT_ACCEL"

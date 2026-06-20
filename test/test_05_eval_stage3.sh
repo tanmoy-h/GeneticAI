@@ -1,31 +1,40 @@
 #!/bin/bash
-#SBATCH --job-name=w11_eval
+#SBATCH --job-name=w9_eval
 #SBATCH --gres=gpu:2
 #SBATCH --mem=160G
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week11tests/logs/eval_stage3_w11_%j.out
-#SBATCH --error=week11tests/logs/eval_stage3_w11_%j.err
+#SBATCH --output=week9tests/logs/eval_stage3_w9_%j.out
+#SBATCH --error=week9tests/logs/eval_stage3_w9_%j.err
 
-## Full evaluation of a Stage 3 w11 optB checkpoint.
-## (Option B: GRPO with learnable theta_low via REINFORCE)
+## Full evaluation of a Stage 3 w9 (or optB) checkpoint.
 ## Reports accuracy, macro precision, recall, F1 and per-class breakdown.
 ## Writes <prefix>_metrics.json and <prefix>_predictions.csv.
 ##
-## Run sh_stage3_grpo_w9_optB.sh first, then set CKPT to the best checkpoint.
-## The best checkpoint is the one with highest eval_correctness in the log.
+## Default checkpoint: checkpoint-3088
+##   (checkpoint-1158 rotated out by save_total_limit=4; checkpoint-3088 is
+##   the best surviving checkpoint from the w9 run.)
+##
+## Works for:
+##   w9  — standard fixed-theta_low checkpoint
+##   optB — learnable theta_low checkpoint (pass THETA_LOW_PT to restore learned value)
 ##
 ## Usage:
-##   bash week11tests/sh_eval_stage3_w11.sh [gpu_ids]
+##   bash week9tests/sh_eval_stage3_w9.sh [gpu_ids]
 ##
 ##   # Override checkpoint:
-##   CKPT=/scratch/.../stage3_grpo_optB/checkpoint-N bash week11tests/sh_eval_stage3_w11.sh 0,1
+##   CKPT=/scratch/.../stage3_grpo_w9/checkpoint-386 bash week9tests/sh_eval_stage3_w9.sh 0,1
+##
+##   # Evaluate optB with learned theta_low:
+##   CKPT=/scratch/.../stage3_grpo_optB/checkpoint-N \
+##   THETA_LOW_PT=/scratch/.../stage3_grpo_optB/checkpoint-N/theta_low.pt \
+##   bash week9tests/sh_eval_stage3_w9.sh 0,1
 ##
 ##   # Quick sanity check (50 samples, val split):
-##   SPLIT=val N_SAMPLES=50 bash week11tests/sh_eval_stage3_w11.sh 0
+##   SPLIT=val N_SAMPLES=50 bash week9tests/sh_eval_stage3_w9.sh 0
 ##
 ##   # SLURM:
-##   sbatch week11tests/sh_eval_stage3_w11.sh
+##   sbatch week9tests/sh_eval_stage3_w9.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -33,12 +42,8 @@ CACHE_DIR=~/.cache/huggingface
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
 
-## Best checkpoint from stage3_grpo_optB run.
-## PLACEHOLDER — update CKPT after training: grep eval_correctness in
-##   week11tests/logs/stage3_grpo_w9_optB_*.log
-## and pick the checkpoint-N with the highest score.
-## (checkpoint-1158 below is copied from w9 and may not exist for optB.)
-CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week11tests/stage3_grpo_optB/checkpoint-1158}
+## Best surviving checkpoint (checkpoint-1158 rotated out by save_total_limit=4)
+CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage3_grpo_w9/checkpoint-3088}
 
 ## Split: val | test | both
 SPLIT=${SPLIT:-both}
@@ -52,14 +57,12 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 ## Stage 2 manifold (training used stage2_output_w9)
 STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}
 
-## optB: load learned theta_low from checkpoint (auto-detected from CKPT dir)
+## optB: path to theta_low.pt inside the checkpoint dir
+## For standard w9 this file won't exist — falls back to fixed --theta_low
 ## Use `-` not `:-` so THETA_LOW_PT="" disables auto-load (baseline eval).
 THETA_LOW_PT=${THETA_LOW_PT-${CKPT}/theta_low.pt}
 
-## LatentSp thresholds (match optB training defaults)
-## NOTE: latent fires when entropy < theta_low (0–4 nats typical).
-##   THETA_LOW=0.0  → no latent steps (baseline)
-##   THETA_LOW=1.0  → latent for confident tokens (default)
+## LatentSp thresholds (latent fires when entropy < theta_low; 0.0 = no latent baseline)
 THETA_LOW=${THETA_LOW:-1.0}
 THETA_HIGH=${THETA_HIGH:-3.0}
 
@@ -67,20 +70,20 @@ THETA_HIGH=${THETA_HIGH:-3.0}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 
 ## Output directory for metrics + CSV
-OUTPUT_DIR=${OUTPUT_DIR:-week11tests/logs}
+OUTPUT_DIR=${OUTPUT_DIR:-week9tests/logs}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week11tests/logs "$OUTPUT_DIR"
+mkdir -p week9tests/logs "$OUTPUT_DIR"
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
-LOG=week11tests/logs/eval_stage3_w11_$(date +%Y%m%d_%H%M%S).log
+LOG=week9tests/logs/eval_stage3_w9_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 echo "Command:        bash $0 $*"
 echo "Logging to:     $LOG"
@@ -88,31 +91,12 @@ echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES  NUM_GPUS: $NUM_GPUS"
 echo "Checkpoint:     $CKPT"
 echo "Split:          $SPLIT"
 echo "N_samples:      $N_SAMPLES"
-echo "Theta_low:      ${THETA_LOW}  (0.0=no latent; override if theta_low.pt not found)"
+echo "Theta_low:      ${THETA_LOW}  (override if theta_low.pt not found)"
 echo "Theta_high:     $THETA_HIGH"
 echo "DNA cache:      ${DNA_CACHE}"
 echo "Stage 2 dir:    ${STAGE2_DIR:-<none>}"
 echo "Output dir:     $OUTPUT_DIR"
 nvidia-smi
-
-## Pre-flight: verify checkpoint exists and has expected files
-if [ ! -d "$CKPT" ]; then
-    echo "ERROR: checkpoint dir does not exist: $CKPT"
-    echo "  List of available optB checkpoints:"
-    ls -1d "$(dirname "$CKPT")"/checkpoint-* 2>/dev/null || echo "    (none found)"
-    exit 1
-fi
-echo "=== Checkpoint contents ==="
-ls -lh "$CKPT" 2>/dev/null | head -20
-for f in pytorch_model.bin model.safetensors model.pt; do
-    if [ -f "$CKPT/$f" ]; then
-        echo "  LLM weights:    $f"
-        break
-    fi
-done
-[ -f "$CKPT/thinking_gate.pt" ] && echo "  Aux:            thinking_gate.pt ✓" || echo "  WARNING: thinking_gate.pt MISSING — gate will run fresh"
-[ -f "$CKPT/dna_injector.pt" ] && echo "  Aux:            dna_injector.pt ✓"  || echo "  WARNING: dna_injector.pt MISSING — injector will run fresh"
-[ -f "$CKPT/theta_low.pt"   ] && echo "  Aux:            theta_low.pt ✓ (optB learned threshold)" || echo "  INFO:           theta_low.pt absent — using fixed --theta_low $THETA_LOW"
 
 ## Dataset arg: CSV takes priority over HF hub
 if [ -n "$KEGG_CSV" ] && [ -f "$KEGG_CSV" ]; then
@@ -132,10 +116,10 @@ else
     DNA_CACHE_ARG=""
 fi
 
-## optB: theta_low.pt — auto-loaded from checkpoint dir if present
+## optB: theta_low.pt arg
 THETA_LOW_PT_ARG=""
 if [ -n "${THETA_LOW_PT:-}" ] && [ -f "$THETA_LOW_PT" ]; then
-    echo "Theta_low.pt:   $THETA_LOW_PT (learned optB value)"
+    echo "Theta_low.pt:   $THETA_LOW_PT (optB learned value)"
     THETA_LOW_PT_ARG="--theta_low_pt $THETA_LOW_PT"
 else
     echo "Theta_low.pt:   not found — using fixed --theta_low $THETA_LOW"
@@ -150,13 +134,13 @@ if [ -n "$THETA_LOW_PT_ARG" ]; then
 else
     THLABEL="thl${THETA_LOW}"
 fi
-OUTPUT_PREFIX="stage3_w11_${CKPT_NAME}_${SPLIT}_${THLABEL}"
+OUTPUT_PREFIX="stage3_w9_${CKPT_NAME}_${SPLIT}_${THLABEL}"
 
 ## Write accelerate config (DDP, no DeepSpeed)
 ## Pick a free port so this eval can run alongside a training job on the same node.
 FREE_PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); p=s.getsockname()[1]; s.close(); print(p)" 2>/dev/null || echo 29501)
 echo "Using rendezvous port: $FREE_PORT"
-ACCEL_CFG=/tmp/accelerate_eval_w11_${$}.yaml
+ACCEL_CFG=/tmp/accelerate_eval_w9_${$}.yaml
 cat > "$ACCEL_CFG" << EOF
 compute_environment: LOCAL_MACHINE
 distributed_type: MULTI_GPU
@@ -181,7 +165,7 @@ EVAL_START=$SECONDS
 ACCELERATE_USE_DEEPSPEED=false \
 stdbuf -oL -eL accelerate launch \
     --config_file "$ACCEL_CFG" \
-    eval_stage3_w9.py \
+    eval_grpo_checkpoint.py \
     --checkpoint            "$CKPT" \
     "${DATASET_ARGS[@]}" \
     --split                 "$SPLIT" \

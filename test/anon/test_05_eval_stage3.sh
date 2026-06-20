@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=w9_eval
+#SBATCH --job-name=w9_eval_anon
 #SBATCH --gres=gpu:2
 #SBATCH --mem=160G
 #SBATCH --time=04:00:00
@@ -39,8 +39,7 @@
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
-KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
-KEGG_CSV=${KEGG_CSV:-}
+KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 
 ## Best surviving checkpoint (checkpoint-1158 rotated out by save_total_limit=4)
 CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage3_grpo_w9/checkpoint-3088}
@@ -165,7 +164,7 @@ EVAL_START=$SECONDS
 ACCELERATE_USE_DEEPSPEED=false \
 stdbuf -oL -eL accelerate launch \
     --config_file "$ACCEL_CFG" \
-    eval_stage3_w9.py \
+    eval_grpo_checkpoint.py \
     --checkpoint            "$CKPT" \
     "${DATASET_ARGS[@]}" \
     --split                 "$SPLIT" \

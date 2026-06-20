@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=w11_optB_quick
+#SBATCH --job-name=w11_optB_quick_anon
 #SBATCH --gres=gpu:2
 #SBATCH --mem=160G
 #SBATCH --time=00:30:00
@@ -23,7 +23,7 @@
 ## ── Configuration (mirrors sh_stage3_grpo_w9_optB.sh) ────────────────────────
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
-KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
+KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01/model.pt}
 GATE_CKPT_DIR=${GATE_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01}
 GATE_CKPT=${GATE_CKPT:-${GATE_CKPT_DIR}/thinking_gate.pt}
@@ -54,7 +54,7 @@ nvidia-smi
 
 args=(
     --sft_checkpoint         "$STAGE1_CKPT"
-    --dataset_name           "$KEGG_DATASET"
+    --kegg_csv               "$KEGG_CSV"
     --output_dir             "$OUTPUT_DIR"
     --cache_dir              "$CACHE_DIR"
 
@@ -169,7 +169,7 @@ cp "$ACCEL_CFG" "$DEFAULT_ACCEL" 2>/dev/null || true
 ACCELERATE_USE_DEEPSPEED=false \
 stdbuf -oL -eL accelerate launch \
     --config_file "$ACCEL_CFG" \
-    adaptive_thinking_residual_w9_optB.py "${args[@]}"
+    train_grpo_learned_theta.py "${args[@]}"
 
 EXIT_CODE=$?
 
