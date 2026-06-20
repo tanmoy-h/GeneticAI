@@ -54,7 +54,10 @@ from trl.trainer.grpo_config import GRPOConfig
 from trl.import_utils import is_liger_kernel_available, is_vllm_available
 
 from trl.extras.profiling import profiling_context, profiling_decorator
-from trl.extras.vllm_client import VLLMClient
+try:
+    from trl.extras.vllm_client import VLLMClient
+except ImportError:
+    VLLMClient = None
 
 
 from trl.trainer.callbacks import SyncRefModelCallback
