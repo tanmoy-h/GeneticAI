@@ -16,10 +16,10 @@
 ## Default points to Source/data/kegg — copy or symlink the curriculum CSVs there.
 ##
 ## Usage:
-##   bash Source/tests/sh_train_bioreason_anon.sh [gpu_id]
-##   KEGG_DATA_DIR=/path/to/anon_data bash Source/tests/sh_train_bioreason_anon.sh
-##   CKPT_PATH=checkpoints/.../last.ckpt bash Source/tests/sh_train_bioreason_anon.sh   # resume
-##   sbatch Source/tests/sh_train_bioreason_anon.sh
+##   bash src/scripts/anon/sh_train_bioreason_anon.sh [hf_dataset] [gpu_id]
+##   bash src/scripts/anon/sh_train_bioreason_anon.sh iitp-cse/kegg-anon-global 0
+##   CKPT_PATH=checkpoints/.../last.ckpt bash src/scripts/anon/sh_train_bioreason_anon.sh
+##   sbatch src/scripts/anon/sh_train_bioreason_anon.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=${CONDA_ENV:-dna_env}
@@ -27,7 +27,7 @@ CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-asBioReasonE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-checkpoints}
-KEGG_HF=${KEGG_HF:-iitp-cse/kegg-anon-global}
+KEGG_HF=${1:-${KEGG_HF:-iitp-cse/kegg-anon-global}}
 CKPT_PATH=${CKPT_PATH:-}
 ## ─────────────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
 mkdir -p scripts/logs
-export CUDA_VISIBLE_DEVICES=${1:-0}
+export CUDA_VISIBLE_DEVICES=${2:-0}
 nvidia-smi
 
 LOG=scripts/logs/train_bioreason_anon_$(date +%Y%m%d_%H%M%S).log
