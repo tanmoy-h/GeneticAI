@@ -17,7 +17,7 @@
 ##
 ## Usage:
 ##   bash src/scripts/anon/sh_train_bioreason_anon.sh [hf_dataset] [gpu_id]
-##   bash src/scripts/anon/sh_train_bioreason_anon.sh iitp-cse/kegg-anon-global 0
+##   bash src/scripts/anon/sh_train_bioreason_anon.sh iit-patna-cse-ai/kegg-anon-global 0
 ##   CKPT_PATH=checkpoints/.../last.ckpt bash src/scripts/anon/sh_train_bioreason_anon.sh
 ##   sbatch src/scripts/anon/sh_train_bioreason_anon.sh
 
@@ -27,7 +27,7 @@ CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-asBioReasonE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason_anon}
-KEGG_HF=${1:-${KEGG_HF:-iitp-cse/kegg-anon-global}}
+KEGG_HF=${1:-${KEGG_HF:-iit-patna-cse-ai/kegg-anon-global}}
 CKPT_PATH=${CKPT_PATH:-}
 ## ─────────────────────────────────────────────────────────────────────────────
 

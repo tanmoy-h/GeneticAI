@@ -9,9 +9,9 @@ The 'split' column is used to build train/val/test DatasetDict splits.
 
 Usage (run from repo root after huggingface-cli login):
   python upload_anon_dataset.py
-  python upload_anon_dataset.py iitp-cse/kegg-anon-global
-  python upload_anon_dataset.py iitp-cse/kegg-anon-global --private
-  python upload_anon_dataset.py iitp-cse/kegg-anon-global --csv /path/to/other.csv
+  python upload_anon_dataset.py iit-patna-cse-ai/kegg-anon-global
+  python upload_anon_dataset.py iit-patna-cse-ai/kegg-anon-global --private
+  python upload_anon_dataset.py iit-patna-cse-ai/kegg-anon-global --csv /path/to/other.csv
 """
 
 import argparse
@@ -19,7 +19,7 @@ import csv
 
 from datasets import Dataset, DatasetDict
 
-DEFAULT_REPO = "iitp-cse/kegg-anon-global"
+DEFAULT_REPO = "iit-patna-cse-ai/kegg-anon-global"
 DEFAULT_CSV  = "genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv"
 
 
