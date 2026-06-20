@@ -20,7 +20,7 @@ CONDA_ENV=${CONDA_ENV:-dna_env}
 CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-BioReasonE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
-CKPT_PATH=${CKPT_PATH:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/BioReasonE5-kegg-Qwen3-1.7B-20260531-162003/BioReasonE5-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4305.ckpt}
+CKPT_PATH=${CKPT_PATH:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason/BioReasonE5-kegg-Qwen3-1.7B-20260620-155830/BioReasonE5-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4296.ckpt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 
