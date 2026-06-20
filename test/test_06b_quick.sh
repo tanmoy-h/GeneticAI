@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=00:30:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week11tests/logs/test_optB_quick_%j.out
-#SBATCH --error=week11tests/logs/test_optB_quick_%j.err
+#SBATCH --output=test/logs/test_06b_quick_%j.out
+#SBATCH --error=test/logs/test_06b_quick_%j.err
 
 ## Quick smoke test for adaptive theta_low (Option B) training.
 ##
@@ -17,8 +17,8 @@
 ##   - DNA cache is loaded and used
 ##
 ## Usage:
-##   bash week11tests/sh_test_optB_quick.sh [gpu_ids]
-##   sbatch week11tests/sh_test_optB_quick.sh
+##   bash test/test_06b_quick.sh [gpu_ids]
+##   sbatch test/test_06b_quick.sh
 
 ## ── Configuration (mirrors sh_stage3_grpo_w9_optB.sh) ────────────────────────
 CONDA_ENV=dna_env
@@ -37,13 +37,13 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week11tests/logs
+mkdir -p test/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
-LOG=week11tests/logs/test_optB_quick_$(date +%Y%m%d_%H%M%S).log
+LOG=test/logs/test_06b_quick_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to:  $LOG"

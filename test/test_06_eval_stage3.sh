@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week9tests/logs/eval_stage3_w9_%j.out
-#SBATCH --error=week9tests/logs/eval_stage3_w9_%j.err
+#SBATCH --output=test/logs/test_06_eval_stage3_%j.out
+#SBATCH --error=test/logs/test_06_eval_stage3_%j.err
 
 ## Full evaluation of a Stage 3 w9 (or optB) checkpoint.
 ## Reports accuracy, macro precision, recall, F1 and per-class breakdown.
@@ -20,21 +20,21 @@
 ##   optB — learnable theta_low checkpoint (pass THETA_LOW_PT to restore learned value)
 ##
 ## Usage:
-##   bash week9tests/sh_eval_stage3_w9.sh [gpu_ids]
+##   bash test/test_06_eval_stage3.sh [gpu_ids]
 ##
 ##   # Override checkpoint:
-##   CKPT=/scratch/.../stage3_grpo_w9/checkpoint-386 bash week9tests/sh_eval_stage3_w9.sh 0,1
+##   CKPT=/scratch/.../stage3_grpo_w9/checkpoint-386 bash test/test_06_eval_stage3.sh 0,1
 ##
 ##   # Evaluate optB with learned theta_low:
 ##   CKPT=/scratch/.../stage3_grpo_optB/checkpoint-N \
 ##   THETA_LOW_PT=/scratch/.../stage3_grpo_optB/checkpoint-N/theta_low.pt \
-##   bash week9tests/sh_eval_stage3_w9.sh 0,1
+##   bash test/test_06_eval_stage3.sh 0,1
 ##
 ##   # Quick sanity check (50 samples, val split):
-##   SPLIT=val N_SAMPLES=50 bash week9tests/sh_eval_stage3_w9.sh 0
+##   SPLIT=val N_SAMPLES=50 bash test/test_06_eval_stage3.sh 0
 ##
 ##   # SLURM:
-##   sbatch week9tests/sh_eval_stage3_w9.sh
+##   sbatch test/test_06_eval_stage3.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -70,20 +70,20 @@ THETA_HIGH=${THETA_HIGH:-3.0}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 
 ## Output directory for metrics + CSV
-OUTPUT_DIR=${OUTPUT_DIR:-week9tests/logs}
+OUTPUT_DIR=${OUTPUT_DIR:-test/logs}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week9tests/logs "$OUTPUT_DIR"
+mkdir -p test/logs "$OUTPUT_DIR"
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
-LOG=week9tests/logs/eval_stage3_w9_$(date +%Y%m%d_%H%M%S).log
+LOG=test/logs/test_06_eval_stage3_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 echo "Command:        bash $0 $*"
 echo "Logging to:     $LOG"

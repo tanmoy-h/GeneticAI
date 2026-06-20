@@ -4,8 +4,8 @@
 #SBATCH --mem=120G
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --output=week9tests/logs/eval_stage1_5_%j.out
-#SBATCH --error=week9tests/logs/eval_stage1_5_%j.err
+#SBATCH --output=test/logs/test_04_eval_stage1_5_%j.out
+#SBATCH --error=test/logs/test_04_eval_stage1_5_%j.err
 
 ## Evaluate Stage 1.5 checkpoints in parallel across GPUs.
 ##
@@ -13,19 +13,19 @@
 ## Use --s to restrict which curriculum steps to test.
 ##
 ## Usage (direct):
-##   bash week9tests/sh_eval_stage1_5_w9.sh
+##   bash test/test_04_eval_stage1_5.sh
 ##
 ##   # Only evaluate s=1 and s=2 on 2 GPUs:
-##   S=1,2 GPUS=0,1 bash week9tests/sh_eval_stage1_5_w9.sh
+##   S=1,2 GPUS=0,1 bash test/test_04_eval_stage1_5.sh
 ##
 ##   # All steps, 4 GPUs, 100 samples:
-##   GPUS=0,1,2,3 N_SAMPLES=100 bash week9tests/sh_eval_stage1_5_w9.sh
+##   GPUS=0,1,2,3 N_SAMPLES=100 bash test/test_04_eval_stage1_5.sh
 ##
 ##   # Single GPU, s=3 only:
-##   S=3 GPUS=0 bash week9tests/sh_eval_stage1_5_w9.sh
+##   S=3 GPUS=0 bash test/test_04_eval_stage1_5.sh
 ##
 ## Usage (SLURM):
-##   sbatch week9tests/sh_eval_stage1_5_w9.sh
+##   sbatch test/test_04_eval_stage1_5.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -51,20 +51,20 @@ MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 VERBOSE=${VERBOSE:-0}  # set to 1 to print per-sample pred/gt output
 
 ## Results JSON path — auto-named by timestamp if not overridden
-RESULTS_JSON=${RESULTS_JSON:-week9tests/logs/eval_stage1_5_results_$(date +%Y%m%d_%H%M%S).json}
+RESULTS_JSON=${RESULTS_JSON:-test/logs/test_04_eval_stage1_5_results_$(date +%Y%m%d_%H%M%S).json}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week9tests/logs
+mkdir -p test/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 
 ## Expose all SLURM-allocated GPUs
 ## (override with CUDA_VISIBLE_DEVICES env var if needed)
 
-LOG=week9tests/logs/eval_stage1_5_$(date +%Y%m%d_%H%M%S).log
+LOG=test/logs/test_04_eval_stage1_5_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
 echo "Logging to:    $LOG"

@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week11tests/logs/eval_stage3_w11_%j.out
-#SBATCH --error=week11tests/logs/eval_stage3_w11_%j.err
+#SBATCH --output=test/anon/logs/test_06b_eval_stage3_%j.out
+#SBATCH --error=test/anon/logs/test_06b_eval_stage3_%j.err
 
 ## Full evaluation of a Stage 3 w11 optB checkpoint.
 ## (Option B: GRPO with learnable theta_low via REINFORCE)
@@ -16,16 +16,16 @@
 ## The best checkpoint is the one with highest eval_correctness in the log.
 ##
 ## Usage:
-##   bash week11tests/sh_eval_stage3_w11.sh [gpu_ids]
+##   bash test/test_06b_eval_stage3.sh [gpu_ids]
 ##
 ##   # Override checkpoint:
-##   CKPT=/scratch/.../stage3_grpo_optB/checkpoint-N bash week11tests/sh_eval_stage3_w11.sh 0,1
+##   CKPT=/scratch/.../stage3_grpo_optB/checkpoint-N bash test/test_06b_eval_stage3.sh 0,1
 ##
 ##   # Quick sanity check (50 samples, val split):
-##   SPLIT=val N_SAMPLES=50 bash week11tests/sh_eval_stage3_w11.sh 0
+##   SPLIT=val N_SAMPLES=50 bash test/test_06b_eval_stage3.sh 0
 ##
 ##   # SLURM:
-##   sbatch week11tests/sh_eval_stage3_w11.sh
+##   sbatch test/test_06b_eval_stage3.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -34,7 +34,7 @@ KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv
 
 ## Best checkpoint from stage3_grpo_optB run.
 ## PLACEHOLDER — update CKPT after training: grep eval_correctness in
-##   week11tests/logs/stage3_grpo_w9_optB_*.log
+##   test/anon/logs/stage3_grpo_w9_optB_*.log
 ## and pick the checkpoint-N with the highest score.
 ## (checkpoint-1158 below is copied from w9 and may not exist for optB.)
 CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week11tests/stage3_grpo_optB/checkpoint-1158}
@@ -66,20 +66,20 @@ THETA_HIGH=${THETA_HIGH:-3.0}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 
 ## Output directory for metrics + CSV
-OUTPUT_DIR=${OUTPUT_DIR:-week11tests/logs}
+OUTPUT_DIR=${OUTPUT_DIR:-test/anon/logs}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
-mkdir -p week11tests/logs "$OUTPUT_DIR"
+mkdir -p test/anon/logs "$OUTPUT_DIR"
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
-LOG=week11tests/logs/eval_stage3_w11_$(date +%Y%m%d_%H%M%S).log
+LOG=test/anon/logs/test_06b_eval_stage3_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 echo "Command:        bash $0 $*"
 echo "Logging to:     $LOG"

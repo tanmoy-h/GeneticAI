@@ -4,8 +4,8 @@
 #SBATCH --mem=120G
 #SBATCH --time=12:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --output=week9tests/logs/stage1_51_w9_%j.out
-#SBATCH --error=week9tests/logs/stage1_51_w9_%j.err
+#SBATCH --output=train/logs/train_04_stage1_51_%j.out
+#SBATCH --error=train/logs/train_04_stage1_51_%j.err
 
 ## Stage 1.5 Week 9 WITH ThinkingResidualGate + DNAHiddenInjector.
 ##
@@ -18,8 +18,8 @@
 ## gate_warmup_steps=0 — the gate is already adapted, so no log-prob discontinuity.
 ##
 ## Usage:
-##   STAGE15_CKPT=<path> bash week9tests/sh_stage1_51_w9.sh [gpu_id]
-##   STAGE15_CKPT=<path> OUTPUT_DIR=<dir> bash week9tests/sh_stage1_51_w9.sh
+##   STAGE15_CKPT=<path> bash train/train_04_stage1_51.sh [gpu_id]
+##   STAGE15_CKPT=<path> OUTPUT_DIR=<dir> bash train/train_04_stage1_51.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -36,7 +36,7 @@ STAGE15_CKPT=${STAGE15_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9te
 
 if [ -z "${STAGE15_CKPT:-}" ]; then
     echo "ERROR: STAGE15_CKPT is not set."
-    echo "Usage: STAGE15_CKPT=<path> bash week9tests/sh_stage1_51_w9.sh [gpu_id]"
+    echo "Usage: STAGE15_CKPT=<path> bash train/train_04_stage1_51.sh [gpu_id]"
     exit 1
 fi
 
@@ -46,13 +46,13 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week9tests/logs
+mkdir -p train/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
-LOG=week9tests/logs/stage1_51_w9_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week9tests/logs
+LOG=train/logs/train_04_stage1_51_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
 echo "Logging to:    $LOG"
@@ -96,4 +96,4 @@ stdbuf -oL -eL python train_latent_sft.py \
     --use_gate
 
 echo "=== Stage 1.5-with-gate done. Gate weights in $OUTPUT_DIR/best/thinking_gate.pt ==="
-echo "=== Run Stage 3 with: GATE_CKPT_DIR=$OUTPUT_DIR/best bash week9tests/sh_stage3_grpo_w9.sh ==="
+echo "=== Run Stage 3 with: GATE_CKPT_DIR=$OUTPUT_DIR/best bash train/train_06_stage3_grpo.sh ==="

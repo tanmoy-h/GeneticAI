@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=10:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week8tests/logs/stage1_sft_ca_%j.out
-#SBATCH --error=week8tests/logs/stage1_sft_ca_%j.err
+#SBATCH --output=train/logs/train_02_stage1_sft_%j.out
+#SBATCH --error=train/logs/train_02_stage1_sft_%j.err
 
 ## Stage 1 Week 8: SFT from scratch with cross-attention DNA fusion.
 ##
@@ -16,8 +16,8 @@
 ##   - checkpoint_dir            → /scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca
 ##
 ## Usage:
-##   bash week8tests/sh_stage1_sft_w8.sh [gpu_ids]
-##   e.g. bash week8tests/sh_stage1_sft_w8.sh 0,1
+##   bash train/train_02_stage1_sft.sh [gpu_ids]
+##   e.g. bash train/train_02_stage1_sft.sh 0,1
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -30,7 +30,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week8tests/logs
+mkdir -p train/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
@@ -78,8 +78,8 @@ elif [ "${RESUME:-0}" = "1" ]; then
     args+=(--ckpt_path "$LAST_CKPT")
 fi
 
-LOG=week8tests/logs/stage1_sft_ca_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week8tests/logs
+LOG=train/logs/train_02_stage1_sft_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to $LOG"

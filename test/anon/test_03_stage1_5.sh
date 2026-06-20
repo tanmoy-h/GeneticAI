@@ -4,14 +4,14 @@
 #SBATCH --mem=120G
 #SBATCH --time=2:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --output=week9tests/logs/test_stage1_5_w9_%j.out
-#SBATCH --error=week9tests/logs/test_stage1_5_w9_%j.err
+#SBATCH --output=test/anon/logs/test_03_stage1_5_%j.out
+#SBATCH --error=test/anon/logs/test_03_stage1_5_%j.err
 
 ## Evaluate a Stage 1.5 checkpoint (plain model.pt from train_latent_sft.py).
 ##
 ## Usage:
-##   CKPT_PATH=<path/to/model.pt> bash week9tests/sh_test_stage1_5_w9.sh [gpu_id]
-##   CKPT_PATH=<path> SPLIT=test bash week9tests/sh_test_stage1_5_w9.sh 0
+##   CKPT_PATH=<path/to/model.pt> bash test/test_03_stage1_5.sh [gpu_id]
+##   CKPT_PATH=<path> SPLIT=test bash test/test_03_stage1_5.sh 0
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -23,7 +23,7 @@ KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv
 
 if [ -z "${CKPT_PATH:-}" ]; then
     echo "ERROR: CKPT_PATH is not set."
-    echo "Usage: CKPT_PATH=<path/to/model.pt> bash week9tests/sh_test_stage1_5_w9.sh [gpu_id]"
+    echo "Usage: CKPT_PATH=<path/to/model.pt> bash test/test_03_stage1_5.sh [gpu_id]"
     exit 1
 fi
 
@@ -31,13 +31,13 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
-mkdir -p week9tests/logs
+mkdir -p test/anon/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
 
 OUTPUT_DIR=$(dirname "$CKPT_PATH")
 
-LOG=week9tests/logs/test_stage1_5_w9_$(date +%Y%m%d_%H%M%S).log
+LOG=test/anon/logs/test_03_stage1_5_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 echo "Command:      bash $0 $*"
 echo "Logging to:   $LOG"

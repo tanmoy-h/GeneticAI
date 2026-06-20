@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=16:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week9tests/logs/stage3_grpo_w9_%j.out
-#SBATCH --error=week9tests/logs/stage3_grpo_w9_%j.err
+#SBATCH --output=train/logs/train_06_stage3_grpo_%j.out
+#SBATCH --error=train/logs/train_06_stage3_grpo_%j.err
 
 ## Stage 3 Week 9: GRPO + entropy-conditioned dual-mode reasoning.
 ##   Engine: train_grpo_latent_reasoning.py
@@ -16,9 +16,9 @@
 ##   3. DNA hidden injection   — entropy > theta_high → inject u_dna into h_t
 ##
 ## Usage:
-##   STAGE1_CKPT=<path/to/stage1_5/best/model.pt> bash week9tests/sh_stage3_grpo_w9.sh [gpu_ids]
-##   STAGE1_CKPT=<path> STAGE2_DIR=stage2_output_w9 bash week9tests/sh_stage3_grpo_w9.sh 0,1
-##   RESUME=1 STAGE1_CKPT=<path> bash week9tests/sh_stage3_grpo_w9.sh
+##   STAGE1_CKPT=<path/to/stage1_5/best/model.pt> bash train/train_06_stage3_grpo.sh [gpu_ids]
+##   STAGE1_CKPT=<path> STAGE2_DIR=stage2_output_w9 bash train/train_06_stage3_grpo.sh 0,1
+##   RESUME=1 STAGE1_CKPT=<path> bash train/train_06_stage3_grpo.sh
 ##
 ## Notes:
 ##   - STAGE1_CKPT should be the Stage 1.5 SFT best/model.pt
@@ -44,7 +44,7 @@ INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR}/dna_injector.pt}
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."
-    echo "Usage: STAGE1_CKPT=<path> bash week9tests/sh_stage3_grpo_w9.sh [gpu_ids]"
+    echo "Usage: STAGE1_CKPT=<path> bash train/train_06_stage3_grpo.sh [gpu_ids]"
     exit 1
 fi
 
@@ -52,7 +52,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week9tests/logs
+mkdir -p train/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export WANDB_PROJECT
@@ -80,8 +80,8 @@ else
 fi
 TOTAL_STEPS=$(( STEPS_PER_EPOCH * 3 ))
 
-LOG=week9tests/logs/stage3_grpo_w9_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week9tests/logs
+LOG=train/logs/train_06_stage3_grpo_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to:  $LOG"

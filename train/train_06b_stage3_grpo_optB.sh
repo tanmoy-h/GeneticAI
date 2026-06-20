@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=16:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week11tests/logs/stage3_grpo_w9_optB_%j.out
-#SBATCH --error=week11tests/logs/stage3_grpo_w9_optB_%j.err
+#SBATCH --output=train/logs/train_06b_stage3_grpo_optB_%j.out
+#SBATCH --error=train/logs/train_06b_stage3_grpo_optB_%j.err
 
 ## Stage 3 Option B: learnable theta_low via REINFORCE.
 ##
@@ -24,8 +24,8 @@
 ##   No NaN loss / no crash  — mechanisms stable
 ##
 ## Usage:
-##   STAGE1_CKPT=<path/to/stage1_51/model.pt> bash week11tests/sh_stage3_grpo_w9_optB.sh [gpu_ids]
-##   RESUME=1 STAGE1_CKPT=<path> bash week11tests/sh_stage3_grpo_w9_optB.sh
+##   STAGE1_CKPT=<path/to/stage1_51/model.pt> bash train/train_06b_stage3_grpo_optB.sh [gpu_ids]
+##   RESUME=1 STAGE1_CKPT=<path> bash train/train_06b_stage3_grpo_optB.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -47,7 +47,7 @@ INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR:+${GATE_CKPT_DIR}/dna_injector.pt
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."
-    echo "Usage: STAGE1_CKPT=<path> bash week11tests/sh_stage3_grpo_w9_optB.sh [gpu_ids]"
+    echo "Usage: STAGE1_CKPT=<path> bash train/train_06b_stage3_grpo_optB.sh [gpu_ids]"
     exit 1
 fi
 
@@ -55,7 +55,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week11tests/logs
+mkdir -p train/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export WANDB_PROJECT
@@ -83,8 +83,8 @@ else
 fi
 TOTAL_STEPS=$(( STEPS_PER_EPOCH * 3 ))
 
-LOG=week11tests/logs/stage3_grpo_w9_optB_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week11tests/logs
+LOG=train/logs/train_06b_stage3_grpo_optB_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to:  $LOG"

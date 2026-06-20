@@ -4,8 +4,8 @@
 #SBATCH --mem=80G
 #SBATCH --time=4:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --output=week9tests/logs/precompute_dna_%j.out
-#SBATCH --error=week9tests/logs/precompute_dna_%j.err
+#SBATCH --output=train/anon/logs/train_00_precompute_dna_%j.out
+#SBATCH --error=train/anon/logs/train_00_precompute_dna_%j.err
 
 ## Week 9: Precompute Evo2 DNA embeddings for KEGG dataset.
 ##
@@ -19,9 +19,9 @@
 ## appends only missing sequences — already-cached keys are skipped.
 ##
 ## Usage:
-##   bash week9tests/sh_precompute_dna_w9.sh [gpu_id]
-##   KEGG_CSV=/path/to/kegg.csv bash week9tests/sh_precompute_dna_w9.sh 0
-##   OUTPUT_PATH=/custom/path/cache.pt bash week9tests/sh_precompute_dna_w9.sh
+##   bash train/train_00_precompute_dna.sh [gpu_id]
+##   KEGG_CSV=/path/to/kegg.csv bash train/train_00_precompute_dna.sh 0
+##   OUTPUT_PATH=/custom/path/cache.pt bash train/train_00_precompute_dna.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -35,12 +35,12 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
-mkdir -p week9tests/logs
+mkdir -p train/anon/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
 
-LOG=week9tests/logs/precompute_dna_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week9tests/logs
+LOG=train/anon/logs/train_00_precompute_dna_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/anon/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
 echo "Logging to:    $LOG"

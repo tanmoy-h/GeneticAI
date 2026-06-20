@@ -4,8 +4,8 @@
 #SBATCH --mem=120G
 #SBATCH --time=10:00:00
 #SBATCH --cpus-per-task=8
-#SBATCH --output=week9tests/logs/stage1_50_cached_w9_%j.out
-#SBATCH --error=week9tests/logs/stage1_50_cached_w9_%j.err
+#SBATCH --output=train/anon/logs/train_03b_stage1_50_cached_%j.out
+#SBATCH --error=train/anon/logs/train_03b_stage1_50_cached_%j.err
 
 ## Stage 1.5 Week 9: LatentSp cold-start SFT with cached DNA embeddings.
 ##
@@ -20,10 +20,10 @@
 ##                                    exactly.  ~2x compute per batch.
 ##
 ## Usage:
-##   STAGE1_CKPT=<path> bash week9tests/sh_stage1_50_cached_w9.sh [gpu_id]
-##   STAGE1_CKPT=<path> ENTROPY_MODE=inline bash week9tests/sh_stage1_50_cached_w9.sh 0
-##   STAGE1_CKPT=<path> PASSES_PER_STEP=2 bash week9tests/sh_stage1_50_cached_w9.sh 1
-##   STAGE1_CKPT=<path> DNA_CACHE=/custom/path/cache.pt bash week9tests/sh_stage1_50_cached_w9.sh
+##   STAGE1_CKPT=<path> bash train/train_03b_stage1_50_cached.sh [gpu_id]
+##   STAGE1_CKPT=<path> ENTROPY_MODE=inline bash train/train_03b_stage1_50_cached.sh 0
+##   STAGE1_CKPT=<path> PASSES_PER_STEP=2 bash train/train_03b_stage1_50_cached.sh 1
+##   STAGE1_CKPT=<path> DNA_CACHE=/custom/path/cache.pt bash train/train_03b_stage1_50_cached.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -41,7 +41,7 @@ STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8test
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."
-    echo "Usage: STAGE1_CKPT=<path> bash week9tests/sh_stage1_50_cached_w9.sh [gpu_id]"
+    echo "Usage: STAGE1_CKPT=<path> bash train/train_03b_stage1_50_cached.sh [gpu_id]"
     exit 1
 fi
 
@@ -56,7 +56,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
-mkdir -p week9tests/logs
+mkdir -p train/anon/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
 
@@ -79,8 +79,8 @@ if [ -z "$TRAIN_SIZE" ] || [ "$TRAIN_SIZE" -le 0 ] 2>/dev/null; then
     TRAIN_SIZE=500
 fi
 
-LOG=week9tests/logs/stage1_50_cached_w9_${ENTROPY_MODE}_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week9tests/logs
+LOG=train/anon/logs/train_03b_stage1_50_cached_${ENTROPY_MODE}_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/anon/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
 echo "Logging to:    $LOG"

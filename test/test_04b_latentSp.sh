@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=week9tests/logs/test_latentSp_%j.out
-#SBATCH --error=week9tests/logs/test_latentSp_%j.err
+#SBATCH --output=test/logs/test_04b_latentSp_%j.out
+#SBATCH --error=test/logs/test_04b_latentSp_%j.err
 
 ## LatentSp smoke test — runs 50 steps with warmup/ramp disabled so both
 ## latent steps (low-H) and DNA injection (high-H) fire from step 1.
@@ -18,7 +18,7 @@
 ##   No NaN loss, no crash             → mechanisms are stable
 ##
 ## Usage:
-##   STAGE1_CKPT=<path> bash week9tests/sh_test_latentSp.sh [gpu_ids]
+##   STAGE1_CKPT=<path> bash test/test_04b_latentSp.sh [gpu_ids]
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -46,7 +46,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
-mkdir -p week9tests/logs
+mkdir -p test/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export WANDB_PROJECT
@@ -54,8 +54,8 @@ export WANDB_ENTITY
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
-LOG=week9tests/logs/test_latentSp_$(date +%Y%m%d_%H%M%S).log
-mkdir -p week9tests/logs
+LOG=test/logs/test_04b_latentSp_$(date +%Y%m%d_%H%M%S).log
+mkdir -p test/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to:  $LOG"
