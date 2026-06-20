@@ -57,14 +57,55 @@
 | `src/tests/sh_test_bioreason_anon.sh` | `src/test/test_03_bioreason_anon.sh` |
 | `src/tests/sh_test_llm_only.sh` | `src/test/test_04_llm_only.sh` |
 
+## New Scripts Added
+
+| File | Purpose |
+|------|---------|
+| `train/train_06c_stage3_grpo_no_ot.sh` | Ablation: GenoMorph-B without OT reward (`ot_distance` removed, `manifold_weight 0.0`) |
+| `train/train_06d_stage3_grpo_no_latentsp.sh` | Ablation: GenoMorph-B without LatentSp (`theta_low/high 0.0`, uses `train_grpo_latent_reasoning.py`) |
+| `src/scripts/anon/sh_test_llm_only_anon.sh` | LLM-only eval on anonymous KEGG CSV |
+| `src/train_grpo_anon.py` | Restored: thin wrapper patching `train_grpo.py` to accept `--dataset_name`; required by `src/scripts/anon/sh_train_grpo_anon.sh` |
+
+All new train scripts also have anon copies in `train/anon/` and `test/anon/`.
+
+## Step-number Renames (train/ and test/)
+
+Applied to align file prefixes with the sequential training pipeline steps.
+Same renames applied to `train/anon/` and `test/anon/` copies.
+
+### train/
+
+| Before | After | Step |
+|--------|-------|------|
+| `train_01_precompute_dna.sh` | `train_00_precompute_dna.sh` | Step 0 |
+| `train_04_stage1_50_cached.sh` | `train_03b_stage1_50_cached.sh` | Step 3b |
+| `train_05_stage1_51.sh` | `train_04_stage1_51.sh` | Step 4 |
+| `train_06_stage2_hiref.sh` | `train_05_stage2_hiref.sh` | Step 5 |
+| `train_07_stage3_grpo.sh` | `train_06_stage3_grpo.sh` | Step 6 |
+| `train_08_stage3_grpo_optB.sh` | `train_06b_stage3_grpo_optB.sh` | Step 6b |
+| `train_09_stage3_grpo_no_ot.sh` | `train_06c_stage3_grpo_no_ot.sh` | Step 6c |
+| `train_10_stage3_grpo_no_latentsp.sh` | `train_06d_stage3_grpo_no_latentsp.sh` | Step 6d |
+
+### test/
+
+| Before | After | Matches Train |
+|--------|-------|---------------|
+| `test_01_stage1.sh` | `test_02_stage1.sh` | `train_02` |
+| `test_02_stage1_5.sh` | `test_03_stage1_5.sh` | `train_03` |
+| `test_03_eval_stage1_5.sh` | `test_04_eval_stage1_5.sh` | `train_04` |
+| `test_04_latentSp.sh` | `test_04b_latentSp.sh` | `train_04` |
+| `test_05_eval_stage3.sh` | `test_06_eval_stage3.sh` | `train_06` |
+| `test_06_optB_quick.sh` | `test_06b_quick.sh` | `train_06b` |
+| `test_07_eval_stage3_w11.sh` | `test_06b_eval_stage3.sh` | `train_06b` |
+
 ## Shell Scripts Updated (py file references)
 
-| Script | Reference updated |
+| Script (current name) | Reference updated |
 |--------|------------------|
-| `train/train_06_stage2_hiref.sh` | `hiref_offline_multigpu_w9.py` → `hiref_kegg_align.py` |
-| `train/train_07_stage3_grpo.sh` | `adaptive_thinking_residual_w9.py` → `train_grpo_latent_reasoning.py` |
-| `train/train_08_stage3_grpo_optB.sh` | `adaptive_thinking_residual_w9_optB.py` → `train_grpo_learned_theta.py` |
-| `test/test_04_latentSp.sh` | `adaptive_thinking_residual_w9.py` → `train_grpo_latent_reasoning.py` |
-| `test/test_05_eval_stage3.sh` | `eval_stage3_w9.py` → `eval_grpo_checkpoint.py` |
-| `test/test_06_optB_quick.sh` | `adaptive_thinking_residual_w9_optB.py` → `train_grpo_learned_theta.py` |
-| `test/test_07_eval_stage3_w11.sh` | `eval_stage3_w9.py` → `eval_grpo_checkpoint.py` |
+| `train/train_05_stage2_hiref.sh` | `hiref_offline_multigpu_w9.py` → `hiref_kegg_align.py` |
+| `train/train_06_stage3_grpo.sh` | `adaptive_thinking_residual_w9.py` → `train_grpo_latent_reasoning.py` |
+| `train/train_06b_stage3_grpo_optB.sh` | `adaptive_thinking_residual_w9_optB.py` → `train_grpo_learned_theta.py` |
+| `test/test_04b_latentSp.sh` | `adaptive_thinking_residual_w9.py` → `train_grpo_latent_reasoning.py` |
+| `test/test_06_eval_stage3.sh` | `eval_stage3_w9.py` → `eval_grpo_checkpoint.py` |
+| `test/test_06b_quick.sh` | `adaptive_thinking_residual_w9_optB.py` → `train_grpo_learned_theta.py` |
+| `test/test_06b_eval_stage3.sh` | `eval_stage3_w9.py` → `eval_grpo_checkpoint.py` |
