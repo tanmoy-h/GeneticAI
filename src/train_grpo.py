@@ -302,7 +302,7 @@ def main(script_args, training_args, model_args):
             
             # replace model.text_model with text_model for all in state dict
             def new_key(k):
-                if k.startswith("=model."): return k[6:]
+                if k.startswith("model."): return k[6:]
                 elif k.startswith("_forward_module."): return k[len("_forward_module."):]
                 else: return k
             
