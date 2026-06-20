@@ -579,7 +579,6 @@ class DNALLMFineTuner(pl.LightningModule):
         """Create and return the test DataLoader."""
         return self.val_dataloader()
     
-    # Only for VEP datasets, for KEGG use the resulting generations in W&B
     def on_test_epoch_end(self):
         """
         Called at the end of test epoch to generate text for all test examples
@@ -782,11 +781,13 @@ class DNALLMFineTuner(pl.LightningModule):
         # Save generations to a CSV file
         model_name = self.hparams.text_model_name.split('/')[-1]
         if self.hparams.ckpt_path:
-            csv_path = os.path.join(self.hparams.ckpt_path, f"{time.strftime('%Y%m%d-%H%M%S')}-test_generations_{model_name}.csv")
+            csv_dir = os.path.dirname(self.hparams.ckpt_path)
         else:
-            csv_path = os.path.join(self.hparams.checkpoint_dir, f"{time.strftime('%Y%m%d-%H%M%S')}-test_generations_{model_name}.csv")
-        
+            csv_dir = self.hparams.checkpoint_dir
+        csv_path = os.path.join(csv_dir, f"{time.strftime('%Y%m%d-%H%M%S')}-test_generations_{model_name}.csv")
+
         try:
+            os.makedirs(csv_dir, exist_ok=True)
             with open(csv_path, 'w', newline='', encoding='utf-8') as f:
                 if generations:
                     writer = csv.DictWriter(f, fieldnames=generations[0].keys())
