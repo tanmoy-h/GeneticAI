@@ -115,6 +115,29 @@ python build_anon_dataset.py \
 
 ---
 
+## Sequential Run Order
+
+Run real and anonymous datasets **in parallel** — once a step's prerequisite checkpoint exists, both variants can be submitted simultaneously.
+
+| Step | Description | Train (real) | Train (anon) | Test (real) | Test (anon) |
+|------|-------------|-------------|-------------|------------|------------|
+| 0 | Precompute DNA embeddings | `train/train_00_precompute_dna.sh` | `train/anon/train_00_precompute_dna_anon.sh` | — | — |
+| 1b | Baselines eval (LLM-only, BioReason) | `src/train/train_10_llm_only.sh` | — | `src/test/test_04_llm_only.sh` | `src/scripts/anon/sh_test_llm_only_anon.sh` |
+| 2 | Stage 1 — CrossAttn SFT | `train/train_02_stage1_sft.sh` | `train/anon/train_02_stage1_sft_anon.sh` | `test/test_02_stage1.sh` | `test/anon/test_02_stage1_anon.sh` |
+| 3 | Stage 1.5.0 — LatentSp curriculum | `train/train_03_stage1_50.sh` | `train/anon/train_03_stage1_50_anon.sh` | `test/test_03_stage1_5.sh` | `test/anon/test_03_stage1_5_anon.sh` |
+| 3b | Stage 1.5.0 — LatentSp (cached DNA) | `train/train_03b_stage1_50_cached.sh` | `train/anon/train_03b_stage1_50_cached_anon.sh` | — | — |
+| 4 | Stage 1.5.1 — Gate training | `train/train_04_stage1_51.sh` | `train/anon/train_04_stage1_51_anon.sh` | `test/test_04_eval_stage1_5.sh` · `test/test_04b_latentSp.sh` | `test/anon/test_04_eval_stage1_5_anon.sh` · `test/anon/test_04b_latentSp_anon.sh` |
+| 5 | Stage 2 — HiRef OT alignment | `train/train_05_stage2_hiref.sh` | `train/anon/train_05_stage2_hiref_anon.sh` | — | — |
+| 6 | Stage 3 — GRPO (fixed θ_low) | `train/train_06_stage3_grpo.sh` | `train/anon/train_06_stage3_grpo_anon.sh` | `test/test_06_eval_stage3.sh` | `test/anon/test_06_eval_stage3_anon.sh` |
+| 6b | **GenoMorph-B** — GRPO (learned θ_low) | `train/train_06b_stage3_grpo_optB.sh` | `train/anon/train_06b_stage3_grpo_optB_anon.sh` | `test/test_06b_quick.sh` · `test/test_06b_eval_stage3.sh` | `test/anon/test_06b_quick_anon.sh` · `test/anon/test_06b_eval_stage3_anon.sh` |
+| 6c | Ablation — w/o OT reward | `train/train_06c_stage3_grpo_no_ot.sh` | `train/anon/train_06c_stage3_grpo_no_ot_anon.sh` | `test/test_06_eval_stage3.sh` | `test/anon/test_06_eval_stage3_anon.sh` |
+| 6d | Ablation — w/o LatentSp | `train/train_06d_stage3_grpo_no_latentsp.sh` | `train/anon/train_06d_stage3_grpo_no_latentsp_anon.sh` | `test/test_06_eval_stage3.sh` | `test/anon/test_06_eval_stage3_anon.sh` |
+
+> Steps 3 and 3b are alternative paths (uncached vs cached DNA). Use 3b when the DNA embedding cache from Step 0 is available — it saves ~14 GB VRAM per run.
+> Ablations 6c and 6d branch from the 6b checkpoint and reuse the same eval scripts as Step 6.
+
+---
+
 ## Training Pipeline
 
 Run stages in order. Each stage depends on the checkpoint produced by the previous one.
