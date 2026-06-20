@@ -21,7 +21,7 @@ CONDA_ENV=${CONDA_ENV:-dna_env}
 CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-LLMonlyE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
-CHECKPOINT_DIR=${CHECKPOINT_DIR:-checkpoints}
+CHECKPOINT_DIR=${CHECKPOINT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/llm_only}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true

@@ -22,7 +22,7 @@ CONDA_ENV=${CONDA_ENV:-dna_env}
 CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-BioReasonE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
-CHECKPOINT_DIR=${CHECKPOINT_DIR:-checkpoints}
+CHECKPOINT_DIR=${CHECKPOINT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason}
 CKPT_PATH=${CKPT_PATH:-}
 ## ─────────────────────────────────────────────────────────────────────────────
 
