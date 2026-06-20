@@ -27,7 +27,7 @@ CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-asBioReasonE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-checkpoints}
-KEGG_DATA_DIR=${KEGG_DATA_DIR:-data/kegg}
+KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 CKPT_PATH=${CKPT_PATH:-}
 ## ─────────────────────────────────────────────────────────────────────────────
 
@@ -44,10 +44,10 @@ exec > >(tee "$LOG") 2>&1
 set -x
 echo "Command:      bash $0 $*"
 echo "Logging:      $LOG"
-echo "KEGG data:    $KEGG_DATA_DIR"
+echo "KEGG CSV:     $KEGG_CSV"
 
-if [ ! -d "$KEGG_DATA_DIR" ]; then
-    echo "ERROR: KEGG_DATA_DIR not found: $KEGG_DATA_DIR"
+if [ ! -f "$KEGG_CSV" ]; then
+    echo "ERROR: KEGG_CSV not found: $KEGG_CSV"
     exit 1
 fi
 
@@ -68,7 +68,7 @@ stdbuf -oL -eL python train_dna_qwen.py \
     --batch_size                1 \
     --model_type                dna-llm \
     --dataset_type              kegg \
-    --kegg_data_dir_local       "$KEGG_DATA_DIR" \
+    --kegg_csv                  "$KEGG_CSV" \
     --max_length_dna            2048 \
     --truncate_dna_per_side     1024 \
     --max_length_text           6000 \

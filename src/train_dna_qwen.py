@@ -22,6 +22,7 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DeepSpeedStrategy
 
 from bioreason.dataset.kegg import get_format_kegg_function, qwen_dna_collate_fn
+from genomorph.dataset.kegg import load_kegg_from_anon_csv
 from bioreason.dataset.utils import truncate_dna
 from bioreason.dataset.variant_effect import (
     clean_variant_effect_example,
@@ -379,8 +380,10 @@ class DNALLMFineTuner(pl.LightningModule):
         # Load dataset based on type specified in hyperparameters
 
         if self.hparams.dataset_type == "kegg":
-            # Use Hugging Face dataset if provided
-            dataset = load_dataset(self.hparams.kegg_data_dir_huggingface)
+            if self.hparams.kegg_csv:
+                dataset = load_kegg_from_anon_csv(self.hparams.kegg_csv)
+            else:
+                dataset = load_dataset(self.hparams.kegg_data_dir_huggingface)
             dataset = dataset.map(get_format_kegg_function(self.hparams.model_type))
 
             labels = []
@@ -494,8 +497,10 @@ class DNALLMFineTuner(pl.LightningModule):
         """Create and return the validation DataLoader."""
 
         if self.hparams.dataset_type == "kegg":
-            # Use Hugging Face dataset
-            dataset = load_dataset(self.hparams.kegg_data_dir_huggingface)
+            if self.hparams.kegg_csv:
+                dataset = load_kegg_from_anon_csv(self.hparams.kegg_csv)
+            else:
+                dataset = load_dataset(self.hparams.kegg_data_dir_huggingface)
             dataset = dataset.map(get_format_kegg_function(self.hparams.model_type))
 
             if self.hparams.merge_val_test_set:
@@ -931,6 +936,9 @@ if __name__ == "__main__":
     parser.add_argument("--use_qwen_dna_collate_fn", type=bool, default=True)
     parser.add_argument("--kegg_data_dir_local", type=str, default="data/kegg")
     parser.add_argument("--kegg_data_dir_huggingface", type=str, default="wanglab/kegg")
+    parser.add_argument("--kegg_csv", type=str, default=None,
+                        help="Path to anonymised KEGG CSV (from build_anon_dataset.py). "
+                             "Omit to load directly from HuggingFace.")
     parser.add_argument("--variant_effect_coding_data_dir_huggingface", type=str, default="wanglab/variant_effect_coding")
     parser.add_argument("--variant_effect_non_snv_data_dir_huggingface", type=str, default="wanglab/variant_effect_non_snv")
     parser.add_argument("--merge_val_test_set", type=bool, default=False)
