@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=160gb
-#SBATCH --output=Source/tests/logs/train_bioreason_%j.out
-#SBATCH --error=Source/tests/logs/train_bioreason_%j.err
+#SBATCH --output=src/scripts/logs/train_bioreason_%j.out
+#SBATCH --error=src/scripts/logs/train_bioreason_%j.err
 
 ## Normal BioReason SFT — Evo2-7B + Qwen3-1.7B, KEGG dataset.
 ## Matches "Normal BioReason SFT : train + test" cell in training BioReason.ipynb.
@@ -29,12 +29,12 @@ CKPT_PATH=${CKPT_PATH:-}
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
-mkdir -p tests/logs
+cd "$(dirname "$0")/../.."
+mkdir -p scripts/logs
 export CUDA_VISIBLE_DEVICES=${1:-0}
 nvidia-smi
 
-LOG=tests/logs/train_bioreason_$(date +%Y%m%d_%H%M%S).log
+LOG=scripts/logs/train_bioreason_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 set -x
 echo "Command:  bash $0 $*"

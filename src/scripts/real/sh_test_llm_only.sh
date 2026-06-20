@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80gb
-#SBATCH --output=Source/tests/logs/test_llm_only_%j.out
-#SBATCH --error=Source/tests/logs/test_llm_only_%j.err
+#SBATCH --output=src/scripts/logs/test_llm_only_%j.out
+#SBATCH --error=src/scripts/logs/test_llm_only_%j.err
 
 ## Test-only for Normal LLM Qwen3 — loads checkpoint, skips training (--test_only).
 ##
@@ -32,12 +32,12 @@ fi
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
-mkdir -p tests/logs
+cd "$(dirname "$0")/../.."
+mkdir -p scripts/logs
 export CUDA_VISIBLE_DEVICES=${1:-1}
 nvidia-smi
 
-LOG=tests/logs/test_llm_only_$(date +%Y%m%d_%H%M%S).log
+LOG=scripts/logs/test_llm_only_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 set -x
 echo "Command:   bash $0 $*"

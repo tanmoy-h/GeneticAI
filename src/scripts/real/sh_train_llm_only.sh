@@ -6,8 +6,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80gb
-#SBATCH --output=Source/tests/logs/train_llm_only_%j.out
-#SBATCH --error=Source/tests/logs/train_llm_only_%j.err
+#SBATCH --output=src/scripts/logs/train_llm_only_%j.out
+#SBATCH --error=src/scripts/logs/train_llm_only_%j.err
 
 ## Normal LLM Qwen3 SFT — no DNA model, KEGG dataset.
 ## Matches "Normal LLM Qwen3 SFT : train + test" cell in training BioReason.ipynb.
@@ -27,12 +27,12 @@ CHECKPOINT_DIR=${CHECKPOINT_DIR:-checkpoints}
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
-mkdir -p tests/logs
+cd "$(dirname "$0")/../.."
+mkdir -p scripts/logs
 export CUDA_VISIBLE_DEVICES=${1:-0}
 nvidia-smi
 
-LOG=tests/logs/train_llm_only_$(date +%Y%m%d_%H%M%S).log
+LOG=scripts/logs/train_llm_only_$(date +%Y%m%d_%H%M%S).log
 exec > >(tee "$LOG") 2>&1
 set -x
 echo "Command:  bash $0 $*"
