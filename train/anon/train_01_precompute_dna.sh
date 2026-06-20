@@ -34,7 +34,7 @@ OUTPUT_PATH=${OUTPUT_PATH:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 mkdir -p week9tests/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}

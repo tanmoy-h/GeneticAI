@@ -36,7 +36,7 @@ fi
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 mkdir -p week9tests/logs "$OUTPUT_DIR"
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export PYTORCH_ALLOC_CONF=expandable_segments:True

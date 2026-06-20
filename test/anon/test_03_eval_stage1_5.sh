@@ -57,7 +57,7 @@ RESULTS_JSON=${RESULTS_JSON:-week9tests/logs/eval_stage1_5_results_$(date +%Y%m%
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 mkdir -p week9tests/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 
