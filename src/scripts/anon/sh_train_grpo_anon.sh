@@ -102,11 +102,6 @@ python -u train_grpo_anon.py \
   --save_steps                  100 \
   --save_total_limit            2 \
   --log_completions             True \
-  --use_vllm                    True \
-  --vllm_mode                   colocate \
-  --vllm_tensor_parallel_size   1 \
-  --vllm_gpu_memory_utilization 0.3 \
-  --vllm_max_model_len          3000 \
   --bf16                        True \
   --resume_from_checkpoint      True
 SRUN_PAYLOAD
