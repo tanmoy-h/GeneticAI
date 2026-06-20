@@ -26,7 +26,7 @@ export WANDB_PROJECT=${WANDB_PROJECT:-BioReasonGRPOAnonE5}
 export WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 export CHECKPOINT_DIR=${CHECKPOINT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason_grpo_anon}
 export KEGG_HF=${1:-${KEGG_HF:-iit-patna-cse-ai/kegg-anon-global}}
-export SFT_CKPT=${SFT_CKPT:-}
+export SFT_CKPT=${SFT_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason_anon/asBioReasonE5-kegg-Qwen3-1.7B-20260620-155107/asBioReasonE5-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4109.ckpt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
