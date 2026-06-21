@@ -207,7 +207,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."},
     )
     deepspeed: Optional[str] = field(
-        default="grpo_trainer_lora_model/ds_config_stage2.json",
+        default=None,
         metadata={"help": "Path to DeepSpeed configuration file."},
     )
     
