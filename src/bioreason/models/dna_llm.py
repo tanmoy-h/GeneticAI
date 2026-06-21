@@ -350,9 +350,8 @@ class DNALLMModel(nn.Module):
     def is_gradient_checkpointing(self):
         return self.text_model.is_gradient_checkpointing
 
-    @property
-    def is_gradient_checkpointing(self):
-        return self.text_model.is_gradient_checkpointing
+    def gradient_checkpointing_disable(self):
+        self.text_model.gradient_checkpointing_disable()
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
     
