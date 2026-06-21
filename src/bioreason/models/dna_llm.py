@@ -346,6 +346,14 @@ class DNALLMModel(nn.Module):
 
         return outputs
 
+    @property
+    def is_gradient_checkpointing(self):
+        return self.text_model.is_gradient_checkpointing
+
+    @property
+    def is_gradient_checkpointing(self):
+        return self.text_model.is_gradient_checkpointing
+
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
     
         self.text_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
