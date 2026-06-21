@@ -327,11 +327,10 @@ def main(script_args, training_args, model_args):
             if lora_prefix:
                 print("Detected LoRA weights in state dict")
                 # First prepare model for LoRA training
-                print(f"CALLING SECOND PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-                _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
-                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
-                                                        protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
-                                                        go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+                print(f"CALLING SECOND PREP_FOR_TRAINING with dna_model_finetune: {model_args.dna_model_finetune}, dna_projection_finetune: {model_args.dna_projection_finetune}")
+                _prep_for_training(model, model_args,
+                                   dna_model_finetune=model_args.dna_model_finetune,
+                                   dna_projection_finetune=model_args.dna_projection_finetune)
                 
                 # Print some diagnostic info about the keys
                 model_keys = set(model.state_dict().keys())
@@ -388,19 +387,17 @@ def main(script_args, training_args, model_args):
                 print(f"Loaded checkpoint with {len(result.missing_keys)} missing keys and {len(result.unexpected_keys)} unexpected keys")
                 
                 # Now prepare for LoRA training
-                print(f"CALLING THIRD PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-                _ = _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
-                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
-                                                    protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
-                                                    go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+                print(f"CALLING THIRD PREP_FOR_TRAINING with dna_model_finetune: {model_args.dna_model_finetune}, dna_projection_finetune: {model_args.dna_projection_finetune}")
+                _ = _prep_for_training(model, model_args,
+                                       dna_model_finetune=model_args.dna_model_finetune,
+                                       dna_projection_finetune=model_args.dna_projection_finetune)
     
     else:
         # No checkpoint, just prepare for training
-        print(f"CALLING FOURTH PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-        _ = _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
-                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
-                                                    protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
-                                                    go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+        print(f"CALLING FOURTH PREP_FOR_TRAINING with dna_model_finetune: {model_args.dna_model_finetune}, dna_projection_finetune: {model_args.dna_projection_finetune}")
+        _ = _prep_for_training(model, model_args,
+                               dna_model_finetune=model_args.dna_model_finetune,
+                               dna_projection_finetune=model_args.dna_projection_finetune)
     if script_args.full_ckpt is not None:
         print(f"Loading full checkpoint from {script_args.full_ckpt}")
         checkpoint_path = os.path.join(script_args.full_ckpt, "pytorch_model.bin")
