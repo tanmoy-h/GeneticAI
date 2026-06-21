@@ -57,7 +57,7 @@ stdbuf -oL -eL python train_grpo.py \
   --lora_r                      16 \
   --lora_alpha                  32 \
   --lora_dropout                0 \
-  --gradient_accumulation_steps 4 \
+  --gradient_accumulation_steps 8 \
   --gradient_checkpointing      True \
   --max_steps                   1000 \
   --max_completion_length       800 \
