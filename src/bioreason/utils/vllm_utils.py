@@ -5,7 +5,10 @@ import torch
 
 from torch import nn
 
-from trl.extras.vllm_client import VLLMClient
+try:
+    from trl.extras.vllm_client import VLLMClient
+except ImportError:
+    VLLMClient = None
 from trl.import_utils import is_vllm_available
 
 if is_vllm_available():
