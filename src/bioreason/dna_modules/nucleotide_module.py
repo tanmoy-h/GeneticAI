@@ -73,7 +73,7 @@ class NucleotideDNAModule(DNABaseModule):
         Returns:
             List of parameter names to exclude from generation calls
         """
-        return ['answer', 'prompt']
+        return ['answer', 'prompt', 'original_prompts']
 
     def get_custom_processing_keywords(self) -> List[tuple]:
         """
