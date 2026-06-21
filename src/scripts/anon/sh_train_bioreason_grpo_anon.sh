@@ -57,8 +57,8 @@ stdbuf -oL -eL python train_grpo_anon.py \
   --sft_checkpoint              "$SFT_CKPT" \
   --peft_ckpt                   False \
   --truncate_dna_per_side       1024 \
-  --lora_r                      16 \
-  --lora_alpha                  32 \
+  --lora_r                      32 \
+  --lora_alpha                  64 \
   --lora_dropout                0 \
   --gradient_accumulation_steps 8 \
   --gradient_checkpointing      True \
