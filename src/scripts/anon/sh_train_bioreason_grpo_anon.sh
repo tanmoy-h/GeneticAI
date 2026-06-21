@@ -79,6 +79,8 @@ stdbuf -oL -eL python train_grpo_anon.py \
   --save_steps                  100 \
   --save_total_limit            2 \
   --log_completions             True \
+  --lr_scheduler_type           cosine \
+  --warmup_ratio                0.03 \
   --bf16                        True \
   --resume_from_checkpoint      True
 
