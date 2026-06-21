@@ -79,6 +79,7 @@ stdbuf -oL -eL python train_grpo.py \
   --lr_scheduler_type           cosine \
   --warmup_ratio                0.03 \
   --bf16                        True \
+  --use_vllm                    False \
   --resume_from_checkpoint      True
 
 echo "=== GRPO training complete ==="

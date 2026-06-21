@@ -237,7 +237,6 @@ def main(script_args, training_args, model_args):
 
     # Load checkpoint
     if model_args.sft_checkpoint is not None:
-        training_args.vllm_ckpt = model_args.sft_checkpoint
         print(f"Loading SFT checkpoint from {model_args.sft_checkpoint}")
         
         # Determine if it's a directory (PEFT format) or file (PyTorch state dict)
