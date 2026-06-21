@@ -23,7 +23,7 @@ CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 WANDB_PROJECT=${WANDB_PROJECT:-BioReasonGRPOAnonE5}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason_grpo_anon}
-KEGG_HF=${1:-${KEGG_HF:-iit-patna-cse-ai/kegg-anon-global}}
+KEGG_HF=${KEGG_HF:-iit-patna-cse-ai/kegg-anon-global}
 SFT_CKPT=${SFT_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason_anon/asBioReasonE5-kegg-Qwen3-1.7B-20260620-155107/asBioReasonE5-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4109.ckpt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
 mkdir -p scripts/logs
-export CUDA_VISIBLE_DEVICES=${2:-0}
+export CUDA_VISIBLE_DEVICES=${1:-0}
 nvidia-smi
 
 LOG=scripts/logs/train_bioreason_grpo_anon_$(date +%Y%m%d_%H%M%S).log
