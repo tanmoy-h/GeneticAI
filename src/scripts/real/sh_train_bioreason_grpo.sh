@@ -80,6 +80,7 @@ stdbuf -oL -eL python train_grpo.py \
   --warmup_ratio                0.03 \
   --bf16                        True \
   --use_vllm                    False \
+  --mask_truncated_completions  True \
   --resume_from_checkpoint      True
 
 echo "=== GRPO training complete ==="
