@@ -470,7 +470,10 @@ def main(script_args, training_args, model_args):
         # Auto-detect latest checkpoint
         checkpoints = list(pathlib.Path(training_args.output_dir).glob("checkpoint-*"))
         if checkpoints:
-            resume_from_checkpoint = str(max(checkpoints, key=os.path.getmtime))
+            def _ckpt_step(p):
+                try: return int(p.name.split("-")[-1])
+                except ValueError: return -1
+            resume_from_checkpoint = str(max(checkpoints, key=_ckpt_step))
             print(f"Auto-resuming from latest checkpoint: {resume_from_checkpoint}")
         else:
             print("No checkpoints found to resume from. Starting fresh training.")
