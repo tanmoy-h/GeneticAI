@@ -47,7 +47,7 @@ echo "OUTPUT:     $CHECKPOINT_DIR"
 export WANDB_PROJECT WANDB_ENTITY
 export PYTORCH_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
 
-stdbuf -oL -eL python train_grpo_anon.py \
+stdbuf -oL -eL python train_grpo.py \
   --dataset_name                "$KEGG_HF" \
   --text_model_name             Qwen/Qwen3-1.7B \
   --dna_model_name              evo2_7b_base \

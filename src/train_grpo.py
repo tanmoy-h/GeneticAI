@@ -68,8 +68,8 @@ class SaveWithPyTorchCallback(TrainerCallback):
         control.should_save = False
         return control
 
-def get_kegg_questions(truncate_dna_per_side: int = 0) -> Dataset:
-    data = load_dataset('wanglab/kegg', 'default')
+def get_kegg_questions(dataset_name: str = 'wanglab/kegg', truncate_dna_per_side: int = 0) -> Dataset:
+    data = load_dataset(dataset_name)
 
     # Apply truncation if specified
     if truncate_dna_per_side > 0:
@@ -424,7 +424,7 @@ def main(script_args, training_args, model_args):
     print(f"ID for '<|dna_pad|>' is: {model.text_tokenizer.convert_tokens_to_ids('<|dna_pad|>')}")
 
     
-    dataset = get_kegg_questions(truncate_dna_per_side=model_args.truncate_dna_per_side)
+    dataset = get_kegg_questions(dataset_name=script_args.dataset_name, truncate_dna_per_side=model_args.truncate_dna_per_side)
 
     # Custom callback to handle saving with PyTorch's native mechanism
     custom_save_callback = SaveWithPyTorchCallback()
