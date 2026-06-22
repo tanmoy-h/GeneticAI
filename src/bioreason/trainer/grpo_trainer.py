@@ -1551,15 +1551,18 @@ class DNALLMGRPOTrainer(Trainer):
             per_token_loss = per_token_loss + self.beta * per_token_kl
 
             # Log KL divergence
-            mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+            mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1).clamp(min=1)).mean()
             self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
 
-        # Compute final loss
-        loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
+        # Compute final loss; clamp denominator to 1 so fully-masked completions
+        # (mask_truncated_completions=True) contribute 0 loss and 0 gradient.
+        mask_sum = completion_mask.sum(dim=1).clamp(min=1)
+        loss = ((per_token_loss * completion_mask).sum(dim=1) / mask_sum).mean()
 
         # Log clip ratio
         is_clipped = (per_token_loss1 < per_token_loss2).float()
-        clip_ratio = (is_clipped * completion_mask).sum() / completion_mask.sum()
+        total_mask = completion_mask.sum().clamp(min=1)
+        clip_ratio = (is_clipped * completion_mask).sum() / total_mask
         self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
 
         return loss
