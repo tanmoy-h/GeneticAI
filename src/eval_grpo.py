@@ -172,28 +172,31 @@ def run_one(model: DNALLMModel, processor: DLProcessor,
 # ── Metrics ─────────────────────────────────────────────────────────────────────
 
 def calculate_metrics(results: List[Dict]) -> Dict:
+    from sklearn.metrics import precision_score, recall_score, f1_score
     n = len(results)
     correct = sum(r["is_correct"] for r in results)
     accuracy = correct / n if n else 0.0
-    all_gt = [r["ground_truth"] for r in results]
-    unique = list(set(all_gt))
-    if len(unique) == 2:
-        pos = unique[0]
-        neg = unique[1]
-        tp = sum(r["ground_truth"] == pos and r["is_correct"] for r in results)
-        fp = sum(r["ground_truth"] == neg and r["predicted_answer"] == pos for r in results)
-        fn = sum(r["ground_truth"] == pos and not r["is_correct"] for r in results)
-        tn = sum(r["ground_truth"] == neg and r["is_correct"] for r in results)
-        prec = tp / (tp + fp) if (tp + fp) else 0.0
-        rec = tp / (tp + fn) if (tp + fn) else 0.0
-        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-        return dict(accuracy=accuracy, precision=prec, recall=rec, f1_score=f1,
-                    true_positives=tp, false_positives=fp,
-                    true_negatives=tn, false_negatives=fn,
-                    total_examples=n, correct_predictions=correct,
-                    positive_label=pos, negative_label=neg)
-    return dict(accuracy=accuracy, total_examples=n, correct_predictions=correct,
-                unique_labels=unique)
+
+    y_true = [r["ground_truth"] for r in results]
+    # For substring-match eval, map predicted to gt label when it contains it
+    y_pred = [r["ground_truth"] if r["is_correct"] else r["predicted_answer"] for r in results]
+
+    avg = "binary" if len(set(y_true)) == 2 else "weighted"
+    prec_w  = precision_score(y_true, y_pred, average="weighted", zero_division=0)
+    rec_w   = recall_score(y_true, y_pred, average="weighted", zero_division=0)
+    f1_w    = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    f1_mac  = f1_score(y_true, y_pred, average="macro", zero_division=0)
+
+    return dict(
+        accuracy=accuracy,
+        precision_weighted=prec_w,
+        recall_weighted=rec_w,
+        f1_weighted=f1_w,
+        f1_macro=f1_mac,
+        total_examples=n,
+        correct_predictions=correct,
+        num_classes=len(set(y_true)),
+    )
 
 
 def save_results(results: List[Dict], metrics: Dict, output_dir: str, tag: str = "grpo"):
@@ -218,15 +221,16 @@ def save_results(results: List[Dict], metrics: Dict, output_dir: str, tag: str =
     print("\n" + "=" * 60)
     print("EVALUATION SUMMARY")
     print("=" * 60)
-    print(f"Total:       {metrics['total_examples']}")
-    print(f"Correct:     {metrics['correct_predictions']}")
-    print(f"Accuracy:    {metrics['accuracy']:.4f}")
-    if "f1_score" in metrics:
-        print(f"Precision:   {metrics['precision']:.4f}")
-        print(f"Recall:      {metrics['recall']:.4f}")
-        print(f"F1:          {metrics['f1_score']:.4f}")
-    print(f"Avg time:    {metrics.get('avg_gen_time_s', 0):.2f}s/example")
-    print(f"Total time:  {metrics.get('total_time_s', 0)/60:.1f} min")
+    print(f"Total:          {metrics['total_examples']}")
+    print(f"Correct:        {metrics['correct_predictions']}")
+    print(f"Classes:        {metrics['num_classes']}")
+    print(f"Accuracy:       {metrics['accuracy']:.4f}")
+    print(f"Precision (W):  {metrics['precision_weighted']:.4f}")
+    print(f"Recall (W):     {metrics['recall_weighted']:.4f}")
+    print(f"F1 (weighted):  {metrics['f1_weighted']:.4f}")
+    print(f"F1 (macro):     {metrics['f1_macro']:.4f}")
+    print(f"Avg time:       {metrics.get('avg_gen_time_s', 0):.2f}s/example")
+    print(f"Total time:     {metrics.get('total_time_s', 0)/60:.1f} min")
     print("=" * 60)
     print(f"Results: {base}_results.csv")
 
