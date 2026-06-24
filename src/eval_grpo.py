@@ -181,21 +181,25 @@ def calculate_metrics(results: List[Dict]) -> Dict:
     # For substring-match eval, map predicted to gt label when it contains it
     y_pred = [r["ground_truth"] if r["is_correct"] else r["predicted_answer"] for r in results]
 
-    avg = "binary" if len(set(y_true)) == 2 else "weighted"
-    prec_w  = precision_score(y_true, y_pred, average="weighted", zero_division=0)
-    rec_w   = recall_score(y_true, y_pred, average="weighted", zero_division=0)
-    f1_w    = f1_score(y_true, y_pred, average="weighted", zero_division=0)
-    f1_mac  = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    labels = sorted(set(y_true))
+    prec_mac = precision_score(y_true, y_pred, labels=labels, average="macro",    zero_division=0)
+    rec_mac  = recall_score(   y_true, y_pred, labels=labels, average="macro",    zero_division=0)
+    f1_mac   = f1_score(       y_true, y_pred, labels=labels, average="macro",    zero_division=0)
+    prec_w   = precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0)
+    rec_w    = recall_score(   y_true, y_pred, labels=labels, average="weighted", zero_division=0)
+    f1_w     = f1_score(       y_true, y_pred, labels=labels, average="weighted", zero_division=0)
 
     return dict(
         accuracy=accuracy,
-        precision_weighted=prec_w,
-        recall_weighted=rec_w,
-        f1_weighted=f1_w,
-        f1_macro=f1_mac,
+        macro_precision=float(prec_mac),
+        macro_recall=float(rec_mac),
+        f1_macro=float(f1_mac),
+        precision_weighted=float(prec_w),
+        recall_weighted=float(rec_w),
+        f1_weighted=float(f1_w),
         total_examples=n,
         correct_predictions=correct,
-        num_classes=len(set(y_true)),
+        num_classes=len(labels),
     )
 
 
@@ -225,10 +229,9 @@ def save_results(results: List[Dict], metrics: Dict, output_dir: str, tag: str =
     print(f"Correct:        {metrics['correct_predictions']}")
     print(f"Classes:        {metrics['num_classes']}")
     print(f"Accuracy:       {metrics['accuracy']:.4f}")
-    print(f"Precision (W):  {metrics['precision_weighted']:.4f}")
-    print(f"Recall (W):     {metrics['recall_weighted']:.4f}")
-    print(f"F1 (weighted):  {metrics['f1_weighted']:.4f}")
-    print(f"F1 (macro):     {metrics['f1_macro']:.4f}")
+    print(f"Precision:      {metrics['macro_precision']:.4f}  (macro)   {metrics['precision_weighted']:.4f}  (weighted)")
+    print(f"Recall:         {metrics['macro_recall']:.4f}  (macro)   {metrics['recall_weighted']:.4f}  (weighted)")
+    print(f"F1:             {metrics['f1_macro']:.4f}  (macro)   {metrics['f1_weighted']:.4f}  (weighted)")
     print(f"Avg time:       {metrics.get('avg_gen_time_s', 0):.2f}s/example")
     print(f"Total time:     {metrics.get('total_time_s', 0)/60:.1f} min")
     print("=" * 60)

@@ -45,7 +45,7 @@ LATENT_START = "<start-latent>"
 LATENT_END   = "<end-latent>"
 LATENT_PAD   = "<latent>"
 
-# Result tuple: (label, n_correct, n_total, accuracy, full_ckpt_path)
+# Result tuple: (label, n_correct, n_total, accuracy, full_ckpt_path, details)
 EvalResult = Tuple[str, int, int, float, str]
 
 
@@ -491,14 +491,17 @@ def main():
     def _f1_from_details(details):
         from sklearn.metrics import f1_score as sk_f1, precision_score, recall_score
         if not details:
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         y_true = [gt for _, gt, _ in details]
         y_pred = [gt if ok else pred for pred, gt, ok in details]
         labels = sorted(set(y_true))
-        mac = float(sk_f1(y_true, y_pred, labels=labels, average="macro", zero_division=0))
-        wt  = float(sk_f1(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
-        prec_w = float(precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
-        return mac, wt, prec_w
+        prec_mac = float(precision_score(y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+        rec_mac  = float(recall_score(   y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+        f1_mac   = float(sk_f1(          y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+        prec_w   = float(precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+        rec_w    = float(recall_score(   y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+        f1_w     = float(sk_f1(          y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+        return prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_w
 
     sep = "=" * 70
     gpu_str = ",".join(str(g) for g in active_gpus)
@@ -510,18 +513,18 @@ def main():
     print("  " + "-" * 72)
     for rank, (label, nc, nt, acc, _, details) in enumerate(all_results, 1):
         star = "  ★ BEST" if rank == 1 else ""
-        f1_mac, f1_wt, _ = _f1_from_details(details)
+        _, _, f1_mac, _, _, f1_wt = _f1_from_details(details)
         print(f"  {rank:<5} {acc*100:>9.1f}%  {f1_mac:>8.4f}  {f1_wt:>8.4f}  {nc:>3}/{nt:<3}     {label}{star}")
     print(sep)
 
     if all_results:
         best_label, best_nc, best_nt, best_acc, best_path, best_details = all_results[0]
-        f1_mac, f1_wt, prec_wt = _f1_from_details(best_details)
+        prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_wt = _f1_from_details(best_details)
         print(f"\n  Best checkpoint : {best_path}")
         print(f"  Accuracy        : {best_nc}/{best_nt}  ({best_acc*100:.1f}%)")
-        print(f"  F1 (macro)      : {f1_mac:.4f}")
-        print(f"  F1 (weighted)   : {f1_wt:.4f}")
-        print(f"  Precision (wt)  : {prec_wt:.4f}\n")
+        print(f"  Precision       : {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)")
+        print(f"  Recall          : {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)")
+        print(f"  F1              : {f1_mac:.4f}  (macro)   {f1_wt:.4f}  (weighted)\n")
 
     # ── Write results JSON ────────────────────────────────────────────────────
     if args.results_json:
@@ -548,8 +551,8 @@ def main():
                     "n_correct":   nc,
                     "n_total":     nt,
                     "accuracy":    round(acc, 4),
-                    "f1_macro":    round(_f1_from_details(det)[0], 4),
-                    "f1_weighted": round(_f1_from_details(det)[1], 4),
+                    "f1_macro":    round(_f1_from_details(det)[2], 4),
+                    "f1_weighted": round(_f1_from_details(det)[5], 4),
                 }
                 for rank, (label, nc, nt, acc, ckpt_path, det) in enumerate(all_results, 1)
             ],
@@ -559,8 +562,8 @@ def main():
                 "n_correct":   all_results[0][1],
                 "n_total":     all_results[0][2],
                 "accuracy":    round(all_results[0][3], 4),
-                "f1_macro":    round(_f1_from_details(all_results[0][5])[0], 4),
-                "f1_weighted": round(_f1_from_details(all_results[0][5])[1], 4),
+                "f1_macro":    round(_f1_from_details(all_results[0][5])[2], 4),
+                "f1_weighted": round(_f1_from_details(all_results[0][5])[5], 4),
             } if all_results else None,
         }
         os.makedirs(os.path.dirname(os.path.abspath(args.results_json)), exist_ok=True)
