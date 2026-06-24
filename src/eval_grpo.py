@@ -9,7 +9,7 @@ import sys
 import json
 import argparse
 from typing import Dict, List, Any, Optional
-from tqdm import tqdm
+import time
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -283,7 +283,10 @@ def main():
     )
 
     results = []
-    for ex in tqdm(examples, desc="Evaluating"):
+    total = len(examples)
+    gen_times = []
+    for ex in examples:
+        t0 = time.time()
         try:
             res = run_one(model, processor, ex, gen_config)
         except Exception as e:
@@ -291,10 +294,18 @@ def main():
             res = {"generated_text": "", "predicted_answer": "",
                    "ground_truth": ex["answer"].strip().lower(),
                    "is_correct": False, "question": ""}
+        elapsed = time.time() - t0
+        gen_times.append(elapsed)
         results.append(res)
-        if len(results) % 50 == 0:
-            acc = sum(r["is_correct"] for r in results) / len(results)
-            print(f"  [{len(results)}/{len(examples)}] running accuracy: {acc:.3f}")
+
+        n = len(results)
+        correct = sum(r["is_correct"] for r in results)
+        mark = "✓" if res["is_correct"] else "✗"
+        gt_field = f"gt='{res['ground_truth']}'"
+        pred_field = f"pred='{res['predicted_answer']}'"
+        print(f"[TEST] {n:4d} | {mark} | {gt_field:<45} | {pred_field} | {elapsed:.2f}s")
+        avg_gen = sum(gen_times) / len(gen_times)
+        print(f"[TEST] Batch {n}/{total} done — acc so far: {correct}/{n} ({100*correct/n:.1f}%) | avg_gen: {avg_gen:.2f}s")
 
     metrics = calculate_metrics(results)
     save_results(results, metrics, args.output_dir, tag=args.tag)
