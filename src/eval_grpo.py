@@ -218,11 +218,15 @@ def save_results(results: List[Dict], metrics: Dict, output_dir: str, tag: str =
     print("\n" + "=" * 60)
     print("EVALUATION SUMMARY")
     print("=" * 60)
-    print(f"Total:    {metrics['total_examples']}")
-    print(f"Correct:  {metrics['correct_predictions']}")
-    print(f"Accuracy: {metrics['accuracy']:.4f}")
+    print(f"Total:       {metrics['total_examples']}")
+    print(f"Correct:     {metrics['correct_predictions']}")
+    print(f"Accuracy:    {metrics['accuracy']:.4f}")
     if "f1_score" in metrics:
-        print(f"F1:       {metrics['f1_score']:.4f}")
+        print(f"Precision:   {metrics['precision']:.4f}")
+        print(f"Recall:      {metrics['recall']:.4f}")
+        print(f"F1:          {metrics['f1_score']:.4f}")
+    print(f"Avg time:    {metrics.get('avg_gen_time_s', 0):.2f}s/example")
+    print(f"Total time:  {metrics.get('total_time_s', 0)/60:.1f} min")
     print("=" * 60)
     print(f"Results: {base}_results.csv")
 
@@ -308,6 +312,8 @@ def main():
         print(f"[TEST] Batch {n}/{total} done — acc so far: {correct}/{n} ({100*correct/n:.1f}%) | avg_gen: {avg_gen:.2f}s")
 
     metrics = calculate_metrics(results)
+    metrics["avg_gen_time_s"] = sum(gen_times) / len(gen_times) if gen_times else 0.0
+    metrics["total_time_s"] = sum(gen_times)
     save_results(results, metrics, args.output_dir, tag=args.tag)
 
 
