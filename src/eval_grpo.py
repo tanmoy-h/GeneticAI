@@ -141,7 +141,7 @@ def run_one(model: DNALLMModel, processor: DLProcessor,
             generation_config=gen_config,
         )
 
-    generated_text = processor.text_tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    generated_text = processor.tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
     # Extract answer: look for text after </think> then after "Answer:"
     extracted = generated_text
