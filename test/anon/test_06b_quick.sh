@@ -24,13 +24,13 @@
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01/model.pt}
-GATE_CKPT_DIR=${GATE_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01}
+STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01/model.pt}
+GATE_CKPT_DIR=${GATE_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01}
 GATE_CKPT=${GATE_CKPT:-${GATE_CKPT_DIR}/thinking_gate.pt}
 INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR}/dna_injector.pt}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
-STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week11tests/test_optB_quick}
+STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref_anon}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/test_06b_quick_anon}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true

@@ -43,7 +43,7 @@ KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
 
 ## Best surviving checkpoint (checkpoint-1158 rotated out by save_total_limit=4)
-CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage3_grpo_w9/checkpoint-3088}
+CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo/checkpoint-3088}
 
 ## Split: val | test | both
 SPLIT=${SPLIT:-both}

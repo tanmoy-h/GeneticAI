@@ -37,7 +37,7 @@ KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv
 ##   test/anon/logs/stage3_grpo_w9_optB_*.log
 ## and pick the checkpoint-N with the highest score.
 ## (checkpoint-1158 below is copied from w9 and may not exist for optB.)
-CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week11tests/stage3_grpo_optB/checkpoint-1158}
+CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06b_stage3_grpo_optB/checkpoint-1158}
 
 ## Split: val | test | both
 SPLIT=${SPLIT:-both}

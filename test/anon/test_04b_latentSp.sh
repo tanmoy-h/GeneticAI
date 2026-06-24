@@ -26,14 +26,14 @@ CACHE_DIR=~/.cache/huggingface
 WANDB_PROJECT=${WANDB_PROJECT:-dna-grpo-week9-test}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/test_latentSp_anon}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/test_04b_latentSp_anon}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 ## Base model from Stage 1.5.1 (model.pt); gate + injector from Stage 3 checkpoint-386
 ## (checkpoint-386 is HF format — no model.pt — so we reuse the SFT base weights)
-STAGE3_CKPT_DIR=${STAGE3_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage3_grpo_w9/checkpoint-386}
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01/model.pt}
+STAGE3_CKPT_DIR=${STAGE3_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo/checkpoint-386}
+STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01/model.pt}
 GATE_CKPT=${GATE_CKPT:-${STAGE3_CKPT_DIR}/thinking_gate.pt}
 INJECTOR_CKPT=${INJECTOR_CKPT:-${STAGE3_CKPT_DIR}/dna_injector.pt}
 
