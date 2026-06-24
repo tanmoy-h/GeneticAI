@@ -405,16 +405,24 @@ def compute_metrics(results):
         }
         precisions.append(p); recalls.append(r); f1s.append(f1)
 
+    from sklearn.metrics import precision_score, recall_score, f1_score as sk_f1
+    y_true = [r["ground_truth"] for r in results]
+    y_pred = [r["ground_truth"] if r["is_correct"] else r["predicted_answer"] for r in results]
+    true_labels = sorted(set(y_true))
+
     n = len(classes)
     return {
-        "accuracy":        round(acc, 4),
-        "macro_precision": round(sum(precisions) / n, 4) if n else 0.0,
-        "macro_recall":    round(sum(recalls)    / n, 4) if n else 0.0,
-        "macro_f1":        round(sum(f1s)        / n, 4) if n else 0.0,
-        "correct":         correct,
-        "total":           total,
-        "n_classes":       n,
-        "per_class":       per_class,
+        "accuracy":          round(acc, 4),
+        "macro_precision":   round(sum(precisions) / n, 4) if n else 0.0,
+        "macro_recall":      round(sum(recalls)    / n, 4) if n else 0.0,
+        "macro_f1":          round(sum(f1s)        / n, 4) if n else 0.0,
+        "weighted_precision": round(float(precision_score(y_true, y_pred, labels=true_labels, average="weighted", zero_division=0)), 4),
+        "weighted_recall":    round(float(recall_score(y_true, y_pred, labels=true_labels, average="weighted", zero_division=0)), 4),
+        "weighted_f1":        round(float(sk_f1(y_true, y_pred, labels=true_labels, average="weighted", zero_division=0)), 4),
+        "correct":           correct,
+        "total":             total,
+        "n_classes":         n,
+        "per_class":         per_class,
     }
 
 
@@ -667,9 +675,9 @@ def main():
     print(f"{'='*60}")
     print(f"  Accuracy   : {metrics['accuracy']:.4f}  "
           f"({metrics['correct']}/{metrics['total']})")
-    print(f"  Precision  : {metrics['macro_precision']:.4f}  (macro)")
-    print(f"  Recall     : {metrics['macro_recall']:.4f}  (macro)")
-    print(f"  F1         : {metrics['macro_f1']:.4f}  (macro)")
+    print(f"  Precision  : {metrics['macro_precision']:.4f}  (macro)   {metrics['weighted_precision']:.4f}  (weighted)")
+    print(f"  Recall     : {metrics['macro_recall']:.4f}  (macro)   {metrics['weighted_recall']:.4f}  (weighted)")
+    print(f"  F1         : {metrics['macro_f1']:.4f}  (macro)   {metrics['weighted_f1']:.4f}  (weighted)")
     print(f"  Classes    : {metrics['n_classes']}")
     print(f"\n  Generation stats:")
     print(f"    Mean gen length : {mean_gen_len:.1f} tokens")

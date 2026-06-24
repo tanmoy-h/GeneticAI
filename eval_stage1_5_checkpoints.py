@@ -364,10 +364,10 @@ def worker_fn(gpu_id: int, ckpt_paths: List[str], val_rows: List[dict],
             )
             acc = n_correct / n_total if n_total else 0.0
             print(f"[{gpu_tag}] {label}: {n_correct}/{n_total} ({acc*100:.1f}%)", flush=True)
-            worker_results.append((label, n_correct, n_total, acc, ckpt_path))
+            worker_results.append((label, n_correct, n_total, acc, ckpt_path, details))
         except Exception as exc:
             print(f"[{gpu_tag}] ERROR on {label}: {exc}", flush=True)
-            worker_results.append((label, 0, len(sample_indices), 0.0, ckpt_path))
+            worker_results.append((label, 0, len(sample_indices), 0.0, ckpt_path, []))
 
     result_queue.put(worker_results)
     print(f"[{gpu_tag}] Done.", flush=True)
@@ -451,7 +451,7 @@ def main():
         for ckpt_path in ckpt_paths:
             label = os.path.relpath(ckpt_path, args.ckpt_dir)
             print(f"\n[eval] ── {label} ──")
-            n_correct, n_total, _ = evaluate_checkpoint(
+            n_correct, n_total, details = evaluate_checkpoint(
                 model, ckpt_path, val_rows, sample_indices,
                 device, args.max_new_tokens,
                 print_samples=args.print_samples,
@@ -459,7 +459,7 @@ def main():
             )
             acc = n_correct / n_total if n_total else 0.0
             print(f"  Accuracy: {n_correct}/{n_total}  ({acc*100:.1f}%)")
-            all_results.append((label, n_correct, n_total, acc, ckpt_path))
+            all_results.append((label, n_correct, n_total, acc, ckpt_path, details))
 
     else:
         # ── Multi-process path: one subprocess per GPU ────────────────────────
@@ -488,23 +488,40 @@ def main():
     # ── Ranked table ──────────────────────────────────────────────────────────
     all_results.sort(key=lambda x: x[3], reverse=True)
 
+    def _f1_from_details(details):
+        from sklearn.metrics import f1_score as sk_f1, precision_score, recall_score
+        if not details:
+            return 0.0, 0.0, 0.0
+        y_true = [gt for _, gt, _ in details]
+        y_pred = [gt if ok else pred for pred, gt, ok in details]
+        labels = sorted(set(y_true))
+        mac = float(sk_f1(y_true, y_pred, labels=labels, average="macro", zero_division=0))
+        wt  = float(sk_f1(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+        prec_w = float(precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+        return mac, wt, prec_w
+
     sep = "=" * 70
     gpu_str = ",".join(str(g) for g in active_gpus)
     print(f"\n{sep}")
     print(f"  STAGE 1.5 CHECKPOINT RANKING{s_tag}  "
           f"(n={n}, seed={args.seed}, gpu={gpu_str})")
     print(sep)
-    print(f"  {'Rank':<5} {'Accuracy':>10}  {'Correct':>9}  Checkpoint")
-    print("  " + "-" * 64)
-    for rank, (label, nc, nt, acc, _) in enumerate(all_results, 1):
+    print(f"  {'Rank':<5} {'Accuracy':>10}  {'F1-mac':>8}  {'F1-wt':>8}  {'Correct':>9}  Checkpoint")
+    print("  " + "-" * 72)
+    for rank, (label, nc, nt, acc, _, details) in enumerate(all_results, 1):
         star = "  ★ BEST" if rank == 1 else ""
-        print(f"  {rank:<5} {acc*100:>9.1f}%  {nc:>3}/{nt:<3}     {label}{star}")
+        f1_mac, f1_wt, _ = _f1_from_details(details)
+        print(f"  {rank:<5} {acc*100:>9.1f}%  {f1_mac:>8.4f}  {f1_wt:>8.4f}  {nc:>3}/{nt:<3}     {label}{star}")
     print(sep)
 
     if all_results:
-        best_label, best_nc, best_nt, best_acc, best_path = all_results[0]
+        best_label, best_nc, best_nt, best_acc, best_path, best_details = all_results[0]
+        f1_mac, f1_wt, prec_wt = _f1_from_details(best_details)
         print(f"\n  Best checkpoint : {best_path}")
-        print(f"  Accuracy        : {best_nc}/{best_nt}  ({best_acc*100:.1f}%)\n")
+        print(f"  Accuracy        : {best_nc}/{best_nt}  ({best_acc*100:.1f}%)")
+        print(f"  F1 (macro)      : {f1_mac:.4f}")
+        print(f"  F1 (weighted)   : {f1_wt:.4f}")
+        print(f"  Precision (wt)  : {prec_wt:.4f}\n")
 
     # ── Write results JSON ────────────────────────────────────────────────────
     if args.results_json:
@@ -525,21 +542,25 @@ def main():
             },
             "ranked_results": [
                 {
-                    "rank":       rank,
-                    "checkpoint": label,
-                    "full_path":  ckpt_path,
-                    "n_correct":  nc,
-                    "n_total":    nt,
-                    "accuracy":   round(acc, 4),
+                    "rank":        rank,
+                    "checkpoint":  label,
+                    "full_path":   ckpt_path,
+                    "n_correct":   nc,
+                    "n_total":     nt,
+                    "accuracy":    round(acc, 4),
+                    "f1_macro":    round(_f1_from_details(det)[0], 4),
+                    "f1_weighted": round(_f1_from_details(det)[1], 4),
                 }
-                for rank, (label, nc, nt, acc, ckpt_path) in enumerate(all_results, 1)
+                for rank, (label, nc, nt, acc, ckpt_path, det) in enumerate(all_results, 1)
             ],
             "best": {
-                "checkpoint": all_results[0][0],
-                "full_path":  all_results[0][4],
-                "n_correct":  all_results[0][1],
-                "n_total":    all_results[0][2],
-                "accuracy":   round(all_results[0][3], 4),
+                "checkpoint":  all_results[0][0],
+                "full_path":   all_results[0][4],
+                "n_correct":   all_results[0][1],
+                "n_total":     all_results[0][2],
+                "accuracy":    round(all_results[0][3], 4),
+                "f1_macro":    round(_f1_from_details(all_results[0][5])[0], 4),
+                "f1_weighted": round(_f1_from_details(all_results[0][5])[1], 4),
             } if all_results else None,
         }
         os.makedirs(os.path.dirname(os.path.abspath(args.results_json)), exist_ok=True)

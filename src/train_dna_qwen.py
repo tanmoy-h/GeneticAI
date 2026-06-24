@@ -762,9 +762,23 @@ class DNALLMFineTuner(pl.LightningModule):
         # Calculate final metrics
         accuracy = correct / max(total_examples, 1)
 
+        from sklearn.metrics import precision_score, recall_score, f1_score as sk_f1
+        y_true = [g["ground_truth"] for g in generations]
+        y_pred = [g["ground_truth"] if g["contains_ground_truth"] else g["predicted_label"] for g in generations]
+        prec_w = precision_score(y_true, y_pred, average="weighted", zero_division=0)
+        rec_w  = recall_score(y_true, y_pred, average="weighted", zero_division=0)
+        f1_w   = sk_f1(y_true, y_pred, average="weighted", zero_division=0)
+        f1_mac = sk_f1(y_true, y_pred, average="macro", zero_division=0)
+        avg_gen = sum(gen_times) / len(gen_times) if gen_times else 0.0
+
         # Log final metrics to wandb
         wandb_logger.log({
             "test_accuracy": accuracy,
+            "test_precision_weighted": prec_w,
+            "test_recall_weighted": rec_w,
+            "test_f1_weighted": f1_w,
+            "test_f1_macro": f1_mac,
+            "test_avg_gen_time_s": avg_gen,
             "correct": correct,
             "total_examples_processed": total_examples,
             "test_status": "completed",
@@ -801,9 +815,16 @@ class DNALLMFineTuner(pl.LightningModule):
         
         summary = (
             f"Test Results Summary:\n"
-            f"Total examples: {total_examples}\n"
-            f"Correct: {correct}\n"
-            f"Accuracy: {accuracy:.4f}"
+            f"Total examples:  {total_examples}\n"
+            f"Correct:         {correct}\n"
+            f"Classes:         {len(set(y_true))}\n"
+            f"Accuracy:        {accuracy:.4f}\n"
+            f"Precision (W):   {prec_w:.4f}\n"
+            f"Recall (W):      {rec_w:.4f}\n"
+            f"F1 (weighted):   {f1_w:.4f}\n"
+            f"F1 (macro):      {f1_mac:.4f}\n"
+            f"Avg gen time:    {avg_gen:.2f}s/example\n"
+            f"Total gen time:  {sum(gen_times)/60:.1f} min"
         )
         print(summary)
         wandb_logger.log({"test_summary": summary})
