@@ -32,12 +32,12 @@ WANDB_PROJECT=${WANDB_PROJECT:-dna-sft-week9-stage1-50}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_50_cached}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached}
 ENTROPY_MODE=${ENTROPY_MODE:-global}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca/dna-sft-week8-ca-kegg-Qwen3-1.7B-20260512-221911/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
+STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-20260512-221911/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."

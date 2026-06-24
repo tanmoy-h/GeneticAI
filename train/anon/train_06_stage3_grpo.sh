@@ -30,7 +30,7 @@ CACHE_DIR=~/.cache/huggingface
 WANDB_PROJECT=${WANDB_PROJECT:-dna-grpo-week9}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage3_grpo_w9_anon}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo_anon}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}   # set to "" to skip manifold alignment
 ## ─────────────────────────────────────────────────────────────────────────────

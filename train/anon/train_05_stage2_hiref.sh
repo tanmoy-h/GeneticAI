@@ -23,8 +23,8 @@
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
-OUTPUT_DIR=${OUTPUT_DIR:-stage2_output_w9_anon}
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51/s04_pass01/model.pt}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref_anon}
+STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01/model.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 if [ -z "$STAGE1_CKPT" ]; then

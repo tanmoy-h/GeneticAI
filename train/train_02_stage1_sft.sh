@@ -59,7 +59,7 @@ args=(
     --use_cross_attention    True
     --max_clip_loss_weight   0.0
     --ot_weight              0.0
-    --checkpoint_dir         /scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca
+    --checkpoint_dir         /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft
 )
 
 ## Resume options (mutually exclusive, CKPT_PATH takes priority):
@@ -69,9 +69,9 @@ if [ -n "${CKPT_PATH:-}" ]; then
     echo "Resuming from: $CKPT_PATH"
     args+=(--ckpt_path "$CKPT_PATH")
 elif [ "${RESUME:-0}" = "1" ]; then
-    LAST_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca -name "last.ckpt" | head -1)
+    LAST_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft -name "last.ckpt" | head -1)
     if [ -z "$LAST_CKPT" ]; then
-        echo "ERROR: RESUME=1 but no last.ckpt found in /scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca"
+        echo "ERROR: RESUME=1 but no last.ckpt found in /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft"
         exit 1
     fi
     echo "RESUME=1: resuming from $LAST_CKPT"

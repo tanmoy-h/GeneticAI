@@ -28,11 +28,11 @@ WANDB_PROJECT=${WANDB_PROJECT:-dna-sft-week9-stage1-5-gate}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
-OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_51}
+OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 ## Start from best Stage 1.5 (no-gate) checkpoint, which already learned latent steps
-STAGE15_CKPT=${STAGE15_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/week9tests/stage1_50_cached/s04_pass01/model.pt}
+STAGE15_CKPT=${STAGE15_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached/s04_pass01/model.pt}
 
 if [ -z "${STAGE15_CKPT:-}" ]; then
     echo "ERROR: STAGE15_CKPT is not set."
