@@ -20,6 +20,7 @@
 CONDA_ENV=${CONDA_ENV:-dna_env}
 CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/bioreason_grpo}
+GRPO_CKPT=${GRPO_CKPT:-$CHECKPOINT_DIR/checkpoint-1000}
 OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/eval_results/bioreason_grpo}
 ## ─────────────────────────────────────────────────────────────────────────────
 
@@ -39,14 +40,6 @@ echo "Logging:      $LOG"
 echo "CHECKPOINT:   $CHECKPOINT_DIR"
 echo "OUTPUT:       $OUTPUT_DIR"
 
-# Auto-detect latest checkpoint if GRPO_CKPT not set
-if [ -z "$GRPO_CKPT" ]; then
-    GRPO_CKPT=$(ls -d "$CHECKPOINT_DIR"/checkpoint-* 2>/dev/null | sort -t- -k2 -n | tail -1)
-    if [ -z "$GRPO_CKPT" ]; then
-        echo "ERROR: No checkpoint-* found under $CHECKPOINT_DIR"
-        exit 1
-    fi
-fi
 echo "Using checkpoint: $GRPO_CKPT"
 
 export PYTORCH_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
