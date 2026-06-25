@@ -32,7 +32,15 @@ OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_st
 ## ─────────────────────────────────────────────────────────────────────────────
 
 ## Start from best Stage 1.5 (no-gate) checkpoint, which already learned latent steps
-STAGE15_CKPT=${STAGE15_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached/s04_pass01/model.pt}
+STAGE15_CKPT=${STAGE15_CKPT:-}
+
+## Auto-detect best Stage 1.5 checkpoint if not set
+if [ -z "${STAGE15_CKPT:-}" ]; then
+    STAGE15_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached \
+        -name "model.pt" 2>/dev/null | sort -V | tail -1)
+    [ -n "$STAGE15_CKPT" ] && echo "Auto-detected STAGE15_CKPT: $STAGE15_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE15_CKPT from train_03b_stage1_50_cached"
+fi
 
 if [ -z "${STAGE15_CKPT:-}" ]; then
     echo "ERROR: STAGE15_CKPT is not set."

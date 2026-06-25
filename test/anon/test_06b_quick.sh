@@ -24,10 +24,21 @@
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01/model.pt}
-GATE_CKPT_DIR=${GATE_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01}
-GATE_CKPT=${GATE_CKPT:-${GATE_CKPT_DIR}/thinking_gate.pt}
-INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR}/dna_injector.pt}
+STAGE1_CKPT=${STAGE1_CKPT:-}
+GATE_CKPT_DIR=${GATE_CKPT_DIR:-}
+
+## Auto-detect best Stage 1.51 checkpoint if not set
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51_anon \
+        -name "model.pt" 2>/dev/null | sort -V | tail -1)
+    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51_anon"
+fi
+if [ -z "${GATE_CKPT_DIR:-}" ] && [ -n "${STAGE1_CKPT:-}" ]; then
+    GATE_CKPT_DIR=$(dirname "$STAGE1_CKPT")
+fi
+GATE_CKPT=${GATE_CKPT:-${GATE_CKPT_DIR:+${GATE_CKPT_DIR}/thinking_gate.pt}}
+INJECTOR_CKPT=${INJECTOR_CKPT:-${GATE_CKPT_DIR:+${GATE_CKPT_DIR}/dna_injector.pt}}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref_anon}
 OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/test_06b_quick_anon}

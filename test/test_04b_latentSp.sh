@@ -32,10 +32,25 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 
 ## Base model from Stage 1.5.1 (model.pt); gate + injector from Stage 3 checkpoint-386
 ## (checkpoint-386 is HF format — no model.pt — so we reuse the SFT base weights)
-STAGE3_CKPT_DIR=${STAGE3_CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo/checkpoint-386}
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01/model.pt}
-GATE_CKPT=${GATE_CKPT:-${STAGE3_CKPT_DIR}/thinking_gate.pt}
-INJECTOR_CKPT=${INJECTOR_CKPT:-${STAGE3_CKPT_DIR}/dna_injector.pt}
+STAGE3_CKPT_DIR=${STAGE3_CKPT_DIR:-}
+STAGE1_CKPT=${STAGE1_CKPT:-}
+
+## Auto-detect best Stage 1.51 checkpoint if not set
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51 \
+        -name "model.pt" 2>/dev/null | sort -V | tail -1)
+    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51"
+fi
+## Auto-detect latest Stage 3 checkpoint dir if not set
+if [ -z "${STAGE3_CKPT_DIR:-}" ]; then
+    STAGE3_CKPT_DIR=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo \
+        -maxdepth 1 -name "checkpoint-*" -type d 2>/dev/null | sort -V | tail -1)
+    [ -n "$STAGE3_CKPT_DIR" ] && echo "Auto-detected STAGE3_CKPT_DIR: $STAGE3_CKPT_DIR" \
+        || echo "WARNING: could not auto-detect STAGE3_CKPT_DIR from train_06_stage3_grpo"
+fi
+GATE_CKPT=${GATE_CKPT:-${STAGE3_CKPT_DIR:+${STAGE3_CKPT_DIR}/thinking_gate.pt}}
+INJECTOR_CKPT=${INJECTOR_CKPT:-${STAGE3_CKPT_DIR:+${STAGE3_CKPT_DIR}/dna_injector.pt}}
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."

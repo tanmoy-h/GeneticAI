@@ -42,8 +42,15 @@ CACHE_DIR=~/.cache/huggingface
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
 
-## Best surviving checkpoint (checkpoint-1158 rotated out by save_total_limit=4)
-CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo/checkpoint-3088}
+CKPT=${CKPT:-}
+
+## Auto-detect latest Stage 3 checkpoint if not set
+if [ -z "${CKPT:-}" ]; then
+    CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo \
+        -maxdepth 1 -name "checkpoint-*" -type d 2>/dev/null | sort -V | tail -1)
+    [ -n "$CKPT" ] && echo "Auto-detected CKPT: $CKPT" \
+        || echo "WARNING: could not auto-detect CKPT from train_06_stage3_grpo"
+fi
 
 ## Split: val | test | both
 SPLIT=${SPLIT:-both}
@@ -54,8 +61,8 @@ N_SAMPLES=${N_SAMPLES:--1}
 ## DNA embedding cache (skip Evo2 forward, frees ~14 GB VRAM)
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 
-## Stage 2 manifold (training used stage2_output_w9)
-STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}
+## Stage 2 manifold
+STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref}
 
 ## optB: path to theta_low.pt inside the checkpoint dir
 ## For standard w9 this file won't exist — falls back to fixed --theta_low

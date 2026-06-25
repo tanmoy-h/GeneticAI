@@ -32,12 +32,15 @@ CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 
-## Best checkpoint from stage3_grpo_optB run.
-## PLACEHOLDER — update CKPT after training: grep eval_correctness in
-##   test/anon/logs/stage3_grpo_w9_optB_*.log
-## and pick the checkpoint-N with the highest score.
-## (checkpoint-1158 below is copied from w9 and may not exist for optB.)
-CKPT=${CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06b_stage3_grpo_optB/checkpoint-1158}
+CKPT=${CKPT:-}
+
+## Auto-detect latest Stage 3 optB checkpoint if not set
+if [ -z "${CKPT:-}" ]; then
+    CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06b_stage3_grpo_optB \
+        -maxdepth 1 -name "checkpoint-*" -type d 2>/dev/null | sort -V | tail -1)
+    [ -n "$CKPT" ] && echo "Auto-detected CKPT: $CKPT" \
+        || echo "WARNING: could not auto-detect CKPT from train_06b_stage3_grpo_optB"
+fi
 
 ## Split: val | test | both
 SPLIT=${SPLIT:-both}
@@ -48,8 +51,8 @@ N_SAMPLES=${N_SAMPLES:--1}
 ## DNA embedding cache (skip Evo2 forward, frees ~14 GB VRAM)
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 
-## Stage 2 manifold (training used stage2_output_w9)
-STAGE2_DIR=${STAGE2_DIR:-stage2_output_w9}
+## Stage 2 manifold
+STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref_anon}
 
 ## optB: load learned theta_low from checkpoint (auto-detected from CKPT dir)
 ## Use `-` not `:-` so THETA_LOW_PT="" disables auto-load (baseline eval).

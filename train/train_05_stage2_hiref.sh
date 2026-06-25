@@ -24,8 +24,16 @@ CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref}
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass01/model.pt}
+STAGE1_CKPT=${STAGE1_CKPT:-}
 ## ─────────────────────────────────────────────────────────────────────────────
+
+## Auto-detect best Stage 1.51 checkpoint if not set
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51 \
+        -name "model.pt" 2>/dev/null | sort -V | tail -1)
+    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51"
+fi
 
 if [ -z "$STAGE1_CKPT" ]; then
     echo "ERROR: STAGE1_CKPT is not set."

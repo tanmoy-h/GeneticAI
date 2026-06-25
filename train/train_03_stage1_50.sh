@@ -31,7 +31,16 @@ OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03_st
 ENTROPY_MODE=${ENTROPY_MODE:-global}
 ## ─────────────────────────────────────────────────────────────────────────────
 
-STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-20260512-221911/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
+STAGE1_CKPT=${STAGE1_CKPT:-}
+
+## Auto-detect best Stage 1 SFT checkpoint if not set
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft \
+        -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
+        | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
+    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_02_stage1_sft"
+fi
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "ERROR: STAGE1_CKPT is not set."

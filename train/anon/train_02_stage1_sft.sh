@@ -13,7 +13,7 @@
 ##   - use_cross_attention=True  → DNA embeddings fused via cross-attn (no linear proj)
 ##   - max_clip_loss_weight=0.0  → no contrastive loss
 ##   - original HF dataset        → load_dataset("wanglab/kegg"), no kegg_csv
-##   - checkpoint_dir            → /scratch/tanmoyh_iitp/GenoMorph/checkpoints/week8tests/stage1_sft_ca
+##   - checkpoint_dir            → /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft_anon
 ##
 ## Usage:
 ##   bash train/train_02_stage1_sft.sh [gpu_ids]
@@ -22,7 +22,7 @@
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
-WANDB_PROJECT=${WANDB_PROJECT:-dna-sft-week8-ca-anon}
+WANDB_PROJECT=${WANDB_PROJECT:-stage1-sft-ca-anon}
 WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 ## ─────────────────────────────────────────────────────────────────────────────
