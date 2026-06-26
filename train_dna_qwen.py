@@ -979,6 +979,7 @@ class DNALLMFineTuner(pl.LightningModule):
         correct = 0
         all_preds: List[int] = []
         all_targets: List[int] = []
+        gen_times: List[float] = []
 
         if os.path.exists(csv_path):
             with open(csv_path, 'r', encoding='utf-8') as f:
@@ -1056,6 +1057,7 @@ class DNALLMFineTuner(pl.LightningModule):
                         })
                         example_batch_map = [0] * len(example_indices)
 
+                t0 = time.time()
                 with torch.no_grad():
                     if self.hparams.get("use_hrpo_gate", False):
                         generated = self.model.generate_with_hrpo_gate(
@@ -1082,6 +1084,7 @@ class DNALLMFineTuner(pl.LightningModule):
                             top_k=20,
                             do_sample=True,
                         )
+                gen_times.append(time.time() - t0)
 
                 user_input = self.model.text_tokenizer.decode(gen_input_ids[0], skip_special_tokens=False).strip()
                 generation = self.model.text_tokenizer.decode(generated[0], skip_special_tokens=False).strip()
@@ -1162,6 +1165,7 @@ class DNALLMFineTuner(pl.LightningModule):
         prec_w   = precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0)
         rec_w    = recall_score(   y_true, y_pred, labels=labels, average="weighted", zero_division=0)
         f1_w     = sk_f1(          y_true, y_pred, labels=labels, average="weighted", zero_division=0)
+        avg_gen  = sum(gen_times) / len(gen_times) if gen_times else 0.0
 
         wandb_logger.log({
             "test_accuracy": accuracy,
@@ -1171,6 +1175,8 @@ class DNALLMFineTuner(pl.LightningModule):
             "test_precision_weighted": prec_w,
             "test_recall_weighted": rec_w,
             "test_f1_weighted": f1_w,
+            "test_avg_gen_time_s": avg_gen,
+            "correct": correct,
             "total_examples_processed": total_examples,
             "test_status": "completed",
         })
@@ -1186,13 +1192,15 @@ class DNALLMFineTuner(pl.LightningModule):
 
         summary = (
             f"Test Results Summary:\n"
-            f"Total examples : {total_examples}\n"
-            f"Classes        : {len(labels)}\n"
-            f"Accuracy       : {accuracy:.4f}\n"
-            f"Precision      : {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)\n"
-            f"Recall         : {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)\n"
-            f"F1             : {f1_mac:.4f}  (macro)   {f1_w:.4f}  (weighted)\n"
-            f"CSV            : {final_csv_path}"
+            f"Total examples:  {total_examples}\n"
+            f"Correct:         {correct}\n"
+            f"Classes:         {len(set(y_true))}\n"
+            f"Accuracy:        {accuracy:.4f}\n"
+            f"Precision:       {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)\n"
+            f"Recall:          {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)\n"
+            f"F1:              {f1_mac:.4f}  (macro)   {f1_w:.4f}  (weighted)\n"
+            f"Avg gen time:    {avg_gen:.2f}s/example\n"
+            f"Total gen time:  {sum(gen_times)/60:.1f} min"
         )
         print(summary)
         wandb_logger.log({"test_summary": summary})
@@ -1200,10 +1208,7 @@ class DNALLMFineTuner(pl.LightningModule):
         torch.cuda.empty_cache()
         gc.collect()
 
-        return {"test_accuracy": accuracy,
-                "test_precision_macro": prec_mac, "test_precision_weighted": prec_w,
-                "test_recall_macro": rec_mac,    "test_recall_weighted": rec_w,
-                "test_f1_macro": f1_mac,         "test_f1_weighted": f1_w}
+        return {"test_accuracy": accuracy}
 
 
 def main(args: ArgumentParser):
