@@ -21,7 +21,7 @@ from transformers import get_cosine_schedule_with_warmup
 from transformers.tokenization_utils_base import BatchEncoding
 
 import pytorch_lightning as pl
-from torchmetrics.functional import f1_score as tm_f1, precision as tm_precision, recall as tm_recall
+from sklearn.metrics import precision_score, recall_score, f1_score as sk_f1
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DeepSpeedStrategy
@@ -1152,17 +1152,25 @@ class DNALLMFineTuner(pl.LightningModule):
         # ── Final metrics ─────────────────────────────────────────────────────
         accuracy = correct / max(total_examples, 1)
 
-        preds_t = torch.tensor(all_preds)
-        targets_t = torch.tensor(all_targets)
-        f1 = tm_f1(preds_t, targets_t, task="multiclass", num_classes=num_classes, average="weighted").item()
-        precision = tm_precision(preds_t, targets_t, task="multiclass", num_classes=num_classes, average="weighted").item()
-        recall = tm_recall(preds_t, targets_t, task="multiclass", num_classes=num_classes, average="weighted").item()
+        id2label = {i: lbl for lbl, i in label2id.items()}
+        y_true = [id2label.get(t, "") for t in all_targets]
+        y_pred = [id2label.get(p, "") for p in all_preds]
+        labels = sorted(set(y_true))
+        prec_mac = precision_score(y_true, y_pred, labels=labels, average="macro",    zero_division=0)
+        rec_mac  = recall_score(   y_true, y_pred, labels=labels, average="macro",    zero_division=0)
+        f1_mac   = sk_f1(          y_true, y_pred, labels=labels, average="macro",    zero_division=0)
+        prec_w   = precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0)
+        rec_w    = recall_score(   y_true, y_pred, labels=labels, average="weighted", zero_division=0)
+        f1_w     = sk_f1(          y_true, y_pred, labels=labels, average="weighted", zero_division=0)
 
         wandb_logger.log({
             "test_accuracy": accuracy,
-            "test_precision": precision,
-            "test_recall": recall,
-            "test_f1": f1,
+            "test_precision_macro": prec_mac,
+            "test_recall_macro": rec_mac,
+            "test_f1_macro": f1_mac,
+            "test_precision_weighted": prec_w,
+            "test_recall_weighted": rec_w,
+            "test_f1_weighted": f1_w,
             "total_examples_processed": total_examples,
             "test_status": "completed",
         })
@@ -1179,10 +1187,11 @@ class DNALLMFineTuner(pl.LightningModule):
         summary = (
             f"Test Results Summary:\n"
             f"Total examples : {total_examples}\n"
+            f"Classes        : {len(labels)}\n"
             f"Accuracy       : {accuracy:.4f}\n"
-            f"Precision (W)  : {precision:.4f}\n"
-            f"Recall    (W)  : {recall:.4f}\n"
-            f"F1        (W)  : {f1:.4f}\n"
+            f"Precision      : {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)\n"
+            f"Recall         : {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)\n"
+            f"F1             : {f1_mac:.4f}  (macro)   {f1_w:.4f}  (weighted)\n"
             f"CSV            : {final_csv_path}"
         )
         print(summary)
@@ -1191,8 +1200,10 @@ class DNALLMFineTuner(pl.LightningModule):
         torch.cuda.empty_cache()
         gc.collect()
 
-        return {"test_accuracy": accuracy, "test_precision": precision,
-                "test_recall": recall, "test_f1": f1}
+        return {"test_accuracy": accuracy,
+                "test_precision_macro": prec_mac, "test_precision_weighted": prec_w,
+                "test_recall_macro": rec_mac,    "test_recall_weighted": rec_w,
+                "test_f1_macro": f1_mac,         "test_f1_weighted": f1_w}
 
 
 def main(args: ArgumentParser):
