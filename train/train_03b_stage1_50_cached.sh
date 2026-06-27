@@ -75,13 +75,13 @@ if [ -n "$KEGG_CSV" ]; then
 from genomorph.dataset.kegg import load_kegg_from_anon_csv
 ds = load_kegg_from_anon_csv('$KEGG_CSV')
 print(len(ds['train']))
-" 2>/dev/null)
+" 2>/dev/null | grep -E '^[0-9]+$' | tail -1)
 else
     TRAIN_SIZE=$(python3 -c "
 from datasets import load_dataset
 ds = load_dataset('$KEGG_DATASET', 'default', cache_dir='$CACHE_DIR')
 print(len(ds['train']))
-" 2>/dev/null)
+" 2>/dev/null | grep -E '^[0-9]+$' | tail -1)
 fi
 if [ -z "$TRAIN_SIZE" ] || [ "$TRAIN_SIZE" -le 0 ] 2>/dev/null; then
     echo "WARNING: Could not read TRAIN_SIZE — falling back to max_entropy_samples=500"
