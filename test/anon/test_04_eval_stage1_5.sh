@@ -48,8 +48,9 @@ CKPT_DIR=${CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage
 
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 
-## Comma-separated GPU IDs (e.g. "0,1,2,3"). Defaults to all 4 SLURM GPUs.
-GPUS=${GPUS:-0,1,2,3}
+## Comma-separated GPU IDs (e.g. "0,1,2,3"). Auto-detects all available GPUs.
+GPUS=${GPUS:-$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | tr '\n' ',' | sed 's/,$//')}
+GPUS=${GPUS:-0}
 
 ## Comma-separated curriculum steps to evaluate (e.g. "1,2"). Empty = all steps.
 S=${S:-}
