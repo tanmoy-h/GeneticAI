@@ -96,7 +96,7 @@ echo "Logging to:    $LOG"
 echo "CUDA:          $CUDA_VISIBLE_DEVICES"
 echo "Stage 1 ckpt:  $STAGE1_CKPT"
 echo "Entropy mode:  $ENTROPY_MODE"
-echo "Passes/step:   ${PASSES_PER_STEP:-1}"
+echo "Passes/step:   ${PASSES_PER_STEP:-3}"
 echo "Output dir:    $OUTPUT_DIR"
 echo "KEGG dataset:  ${KEGG_CSV:-$KEGG_DATASET}"
 echo "DNA cache:     ${DNA_CACHE:-<not set — Evo2 will run live>}"
@@ -125,7 +125,7 @@ stdbuf -oL -eL python train_latent_sft_cached.py \
     --dna_embedding_layer    blocks.28.mlp.l3 \
     --entropy_mode           "$ENTROPY_MODE" \
     --max_latent_steps       4 \
-    --passes_per_step        ${PASSES_PER_STEP:-1} \
+    --passes_per_step        ${PASSES_PER_STEP:-3} \
     --data_refresh_ratio     0.1 \
     --batch_size             1 \
     --grad_accum             8 \

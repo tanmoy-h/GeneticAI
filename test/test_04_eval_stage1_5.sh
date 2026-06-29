@@ -55,7 +55,7 @@ GPUS=${GPUS:-0}
 ## Comma-separated curriculum steps to evaluate (e.g. "1,2"). Empty = all steps.
 S=${S:-}
 
-N_SAMPLES=${N_SAMPLES:-50}
+N_SAMPLES=${N_SAMPLES:-100}
 SEED=${SEED:-42}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 VERBOSE=${VERBOSE:-0}  # set to 1 to print per-sample pred/gt output
