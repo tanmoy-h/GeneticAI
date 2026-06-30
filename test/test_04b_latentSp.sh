@@ -35,16 +35,16 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 STAGE3_CKPT_DIR=${STAGE3_CKPT_DIR:-}
 STAGE1_CKPT=${STAGE1_CKPT:-}
 
-## Auto-detect best Stage 1.51 checkpoint: prefer best/ (lowest val_loss), fallback to last
+## Use Stage 1.51 checkpoint recorded by training (written by train_04_stage1_51.sh)
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    _S151_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51
-    if [ -f "$_S151_DIR/best/model.pt" ]; then
-        STAGE1_CKPT="$_S151_DIR/best/model.pt"
-        echo "Auto-detected STAGE1_CKPT (best): $STAGE1_CKPT"
+    _TRAIN_CKPT_FILE=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/stage151_ckpt.txt
+    if [ -f "$_TRAIN_CKPT_FILE" ]; then
+        STAGE1_CKPT=$(cat "$_TRAIN_CKPT_FILE")
+        echo "STAGE1_CKPT (from training): $STAGE1_CKPT"
     else
-        STAGE1_CKPT=$(find "$_S151_DIR" -name "model.pt" 2>/dev/null | sort -V | tail -1)
-        [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT (last): $STAGE1_CKPT" \
-            || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51"
+        echo "ERROR: STAGE1_CKPT not set and $_TRAIN_CKPT_FILE not found."
+        echo "       Run train_04_stage1_51.sh first, or set STAGE1_CKPT=<path> explicitly."
+        exit 1
     fi
 fi
 ## Auto-detect latest Stage 3 checkpoint dir if not set

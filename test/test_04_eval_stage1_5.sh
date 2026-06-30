@@ -33,10 +33,19 @@ CACHE_DIR=~/.cache/huggingface
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
 
-STAGE1_CKPT=${STAGE1_CKPT:-hf://iit-patna-cse-ai/GenoMorph/stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
-_S1_LOCAL_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft
+STAGE1_CKPT=${STAGE1_CKPT:-}
 
-CKPT_DIR=${CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached}
+if [ -z "${CKPT_DIR:-}" ]; then
+    _CKPT_3B=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached
+    _CKPT_3=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03_stage1_50
+    if [ -f "$_CKPT_3B/stage1_ckpt.txt" ]; then
+        CKPT_DIR="$_CKPT_3B"
+    elif [ -f "$_CKPT_3/stage1_ckpt.txt" ]; then
+        CKPT_DIR="$_CKPT_3"
+    else
+        CKPT_DIR="$_CKPT_3B"
+    fi
+fi
 
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 
@@ -63,36 +72,17 @@ cd "$(dirname "$0")/.."
 mkdir -p test/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 
-## If hf:// URI: download into local checkpoint dir, then always auto-detect best
-if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
-    _HF_REPO=$(echo "$STAGE1_CKPT" | sed 's|hf://||' | cut -d'/' -f1-2)
-    _HF_FILE=$(echo "$STAGE1_CKPT" | sed "s|hf://${_HF_REPO}/||")
-    _HF_RUNNAME=$(basename "$_HF_FILE" .ckpt | sed 's/-epoch=.*//')
-    _HF_LOCAL_SUBDIR="$_S1_LOCAL_DIR/${_HF_RUNNAME}-hf"
-    echo "Downloading HF checkpoint into $_HF_LOCAL_SUBDIR: $STAGE1_CKPT"
-    mkdir -p "$_HF_LOCAL_SUBDIR"
-    if ! HF_HUB_DISABLE_PROGRESS_BARS=1 python3 -c "
-from huggingface_hub import hf_hub_download
-import sys
-try:
-    p = hf_hub_download('$_HF_REPO', '$_HF_FILE', local_dir='$_HF_LOCAL_SUBDIR')
-    print('Downloaded:', p)
-except Exception as e:
-    print('WARNING: HF download error:', str(e))
-    sys.exit(1)
-"; then
-        echo "WARNING: HF download failed — will use best existing local checkpoint"
-    fi
-    STAGE1_CKPT=""
-fi
-
-## Auto-detect best checkpoint by val_loss_epoch (always runs for hf:// and empty)
+## Use Stage 1 checkpoint recorded by training (written by train_03b_stage1_50_cached.sh)
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    STAGE1_CKPT=$(find "$_S1_LOCAL_DIR" \
-        -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
-        | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
-        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_02_stage1_sft"
+    _TRAIN_CKPT_FILE="$CKPT_DIR/stage1_ckpt.txt"
+    if [ -f "$_TRAIN_CKPT_FILE" ]; then
+        STAGE1_CKPT=$(cat "$_TRAIN_CKPT_FILE")
+        echo "STAGE1_CKPT (from training): $STAGE1_CKPT"
+    else
+        echo "ERROR: STAGE1_CKPT not set and $CKPT_DIR/stage1_ckpt.txt not found."
+        echo "       Run training first, or set STAGE1_CKPT=<path> explicitly."
+        exit 1
+    fi
 fi
 
 ## Expose all SLURM-allocated GPUs

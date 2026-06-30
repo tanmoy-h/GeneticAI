@@ -95,6 +95,9 @@ if [ -z "${STAGE1_CKPT:-}" ]; then
     exit 1
 fi
 
+mkdir -p "$OUTPUT_DIR"
+echo "$STAGE1_CKPT" > "$OUTPUT_DIR/stage1_ckpt.txt"
+
 ## Compute train size for --max_entropy_samples
 if [ -n "$KEGG_CSV" ]; then
     TRAIN_SIZE=$(python3 -c "

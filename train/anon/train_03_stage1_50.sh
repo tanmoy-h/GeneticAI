@@ -31,22 +31,8 @@ OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03_st
 ENTROPY_MODE=${ENTROPY_MODE:-global}
 ## ─────────────────────────────────────────────────────────────────────────────
 
-STAGE1_CKPT=${STAGE1_CKPT:-}
-
-## Auto-detect best Stage 1 SFT checkpoint if not set
-if [ -z "${STAGE1_CKPT:-}" ]; then
-    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft_anon \
-        -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
-        | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
-        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_02_stage1_sft_anon"
-fi
-
-if [ -z "${STAGE1_CKPT:-}" ]; then
-    echo "ERROR: STAGE1_CKPT is not set."
-    echo "Usage: STAGE1_CKPT=<path> bash train/train_03_stage1_50.sh [gpu_id]"
-    exit 1
-fi
+STAGE1_CKPT=${STAGE1_CKPT:-hf://iit-patna-cse-ai/GenoMorph/stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
+_S1_LOCAL_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft_anon
 
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
@@ -55,6 +41,47 @@ cd "$(dirname "$0")/../.."
 mkdir -p train/anon/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
+
+## If hf:// URI: download into local checkpoint dir, then always auto-detect best
+if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
+    _HF_REPO=$(echo "$STAGE1_CKPT" | sed 's|hf://||' | cut -d'/' -f1-2)
+    _HF_FILE=$(echo "$STAGE1_CKPT" | sed "s|hf://${_HF_REPO}/||")
+    _HF_RUNNAME=$(basename "$_HF_FILE" .ckpt | sed 's/-epoch=.*//')
+    _HF_LOCAL_SUBDIR="$_S1_LOCAL_DIR/${_HF_RUNNAME}-hf"
+    echo "Downloading HF checkpoint into $_HF_LOCAL_SUBDIR: $STAGE1_CKPT"
+    mkdir -p "$_HF_LOCAL_SUBDIR"
+    if ! HF_HUB_DISABLE_PROGRESS_BARS=1 python3 -c "
+from huggingface_hub import hf_hub_download
+import sys
+try:
+    p = hf_hub_download('$_HF_REPO', '$_HF_FILE', local_dir='$_HF_LOCAL_SUBDIR')
+    print('Downloaded:', p)
+except Exception as e:
+    print('WARNING: HF download error:', str(e))
+    sys.exit(1)
+"; then
+        echo "WARNING: HF download failed — will use best existing local checkpoint"
+    fi
+    STAGE1_CKPT=""
+fi
+
+## Auto-detect best checkpoint by val_loss_epoch (always runs for hf:// and empty)
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    STAGE1_CKPT=$(find "$_S1_LOCAL_DIR" \
+        -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
+        | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
+    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_02_stage1_sft_anon"
+fi
+
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    echo "ERROR: STAGE1_CKPT is not set and could not be resolved."
+    echo "Usage: STAGE1_CKPT=<path|hf://org/repo/file> bash train/anon/train_03_stage1_50.sh [gpu_id]"
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+echo "$STAGE1_CKPT" > "$OUTPUT_DIR/stage1_ckpt.txt"
 
 ## Compute train size for --max_entropy_samples
 if [ -n "$KEGG_CSV" ]; then

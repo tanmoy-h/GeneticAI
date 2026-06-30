@@ -43,12 +43,17 @@ STAGE1_CKPT=${STAGE1_CKPT:-}
 ## Gate/injector from Stage 1.5.1
 GATE_CKPT_DIR=${GATE_CKPT_DIR:-}
 
-## Auto-detect best Stage 1.51 checkpoint if not set
+## Use Stage 1.51 checkpoint recorded by training (written by train_04_stage1_51.sh)
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51_anon \
-        -name "model.pt" 2>/dev/null | sort -V | tail -1)
-    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
-        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51_anon"
+    _TRAIN_CKPT_FILE=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51_anon/stage151_ckpt.txt
+    if [ -f "$_TRAIN_CKPT_FILE" ]; then
+        STAGE1_CKPT=$(cat "$_TRAIN_CKPT_FILE")
+        echo "STAGE1_CKPT (from training): $STAGE1_CKPT"
+    else
+        echo "ERROR: STAGE1_CKPT not set and $_TRAIN_CKPT_FILE not found."
+        echo "       Run train_04_stage1_51.sh first, or set STAGE1_CKPT=<path> explicitly."
+        exit 1
+    fi
 fi
 if [ -z "${GATE_CKPT_DIR:-}" ] && [ -n "${STAGE1_CKPT:-}" ]; then
     GATE_CKPT_DIR=$(dirname "$STAGE1_CKPT")

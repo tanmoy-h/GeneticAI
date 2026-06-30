@@ -124,5 +124,9 @@ stdbuf -oL -eL python train_latent_sft.py \
     --seed                   $SEED \
     --use_gate
 
+if [ -f "$OUTPUT_DIR/best/model.pt" ]; then
+    echo "$OUTPUT_DIR/best/model.pt" > "$OUTPUT_DIR/stage151_ckpt.txt"
+fi
+
 echo "=== Stage 1.5-with-gate done. Gate weights in $OUTPUT_DIR/best/thinking_gate.pt ==="
 echo "=== Run Stage 3 with: GATE_CKPT_DIR=$OUTPUT_DIR/best bash train/train_06_stage3_grpo.sh ==="
