@@ -50,7 +50,7 @@ if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
     _HF_LOCAL_SUBDIR="$_S1_LOCAL_DIR/${_HF_RUNNAME}-hf"
     echo "Downloading HF checkpoint into $_HF_LOCAL_SUBDIR: $STAGE1_CKPT"
     mkdir -p "$_HF_LOCAL_SUBDIR"
-    if ! python3 -c "
+    if ! HF_HUB_DISABLE_PROGRESS_BARS=1 python3 -c "
 from huggingface_hub import hf_hub_download
 import sys
 try:
@@ -59,7 +59,7 @@ try:
 except Exception as e:
     print('WARNING: HF download error:', str(e))
     sys.exit(1)
-" 2>/dev/null; then
+"; then
         echo "WARNING: HF download failed — will use best existing local checkpoint"
     fi
     STAGE1_CKPT=""
