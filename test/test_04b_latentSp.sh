@@ -35,12 +35,17 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 STAGE3_CKPT_DIR=${STAGE3_CKPT_DIR:-}
 STAGE1_CKPT=${STAGE1_CKPT:-}
 
-## Auto-detect best Stage 1.51 checkpoint if not set
+## Auto-detect best Stage 1.51 checkpoint: prefer best/ (lowest val_loss), fallback to last
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51 \
-        -name "model.pt" 2>/dev/null | sort -V | tail -1)
-    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
-        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51"
+    _S151_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51
+    if [ -f "$_S151_DIR/best/model.pt" ]; then
+        STAGE1_CKPT="$_S151_DIR/best/model.pt"
+        echo "Auto-detected STAGE1_CKPT (best): $STAGE1_CKPT"
+    else
+        STAGE1_CKPT=$(find "$_S151_DIR" -name "model.pt" 2>/dev/null | sort -V | tail -1)
+        [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT (last): $STAGE1_CKPT" \
+            || echo "WARNING: could not auto-detect STAGE1_CKPT from train_04_stage1_51"
+    fi
 fi
 ## Auto-detect latest Stage 3 checkpoint dir if not set
 if [ -z "${STAGE3_CKPT_DIR:-}" ]; then
