@@ -42,6 +42,21 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 STAGE1_CKPT=${STAGE1_CKPT:-hf://iit-patna-cse-ai/GenoMorph/stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
 _S1_LOCAL_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft
 
+if [ ! -f "$DNA_CACHE" ]; then
+    echo "WARNING: DNA cache file not found: $DNA_CACHE"
+    echo "         Run sh_precompute_dna_w9.sh first to generate it."
+    echo "         Continuing without cache — Evo2 will run at training time."
+    DNA_CACHE=""
+fi
+
+module load MLDL/miniconda3 2>/dev/null || true
+module load cuda/12.8        2>/dev/null || true
+conda activate $CONDA_ENV
+cd "$(dirname "$0")/.."
+mkdir -p train/logs
+export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
+export CUDA_VISIBLE_DEVICES=${1:-0}
+
 ## If hf:// URI: download into local checkpoint dir, then always auto-detect best
 if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
     _HF_REPO=$(echo "$STAGE1_CKPT" | sed 's|hf://||' | cut -d'/' -f1-2)
@@ -79,21 +94,6 @@ if [ -z "${STAGE1_CKPT:-}" ]; then
     echo "Usage: STAGE1_CKPT=<path|hf://org/repo/file> bash train/train_03b_stage1_50_cached.sh [gpu_id]"
     exit 1
 fi
-
-if [ ! -f "$DNA_CACHE" ]; then
-    echo "WARNING: DNA cache file not found: $DNA_CACHE"
-    echo "         Run sh_precompute_dna_w9.sh first to generate it."
-    echo "         Continuing without cache — Evo2 will run at training time."
-    DNA_CACHE=""
-fi
-
-module load MLDL/miniconda3 2>/dev/null || true
-module load cuda/12.8        2>/dev/null || true
-conda activate $CONDA_ENV
-cd "$(dirname "$0")/.."
-mkdir -p train/logs
-export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
-export CUDA_VISIBLE_DEVICES=${1:-0}
 
 ## Compute train size for --max_entropy_samples
 if [ -n "$KEGG_CSV" ]; then
