@@ -758,6 +758,12 @@ def process_batch(
 # ── Training loop ─────────────────────────────────────────────────────────────
 
 def train(args):
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+    print(f"[Stage1.5] Seed: {args.seed}")
+
     device = args.device
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -1140,6 +1146,8 @@ def parse_args():
     p.add_argument("--dna_cache", default=None,
                    help="Path to precomputed Evo2 embeddings (.pt from precompute_dna_embeddings.py). "
                         "When set, Evo2 is never called during training.")
+    p.add_argument("--seed",                  type=int,   default=42,
+                   help="Random seed for reproducibility (data shuffling, sampling)")
     p.add_argument("--wandb_project",         default=None)
     p.add_argument("--wandb_entity",          default=None)
     p.add_argument("--sample_every",          type=int,   default=200,

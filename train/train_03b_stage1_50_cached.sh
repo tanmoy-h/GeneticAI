@@ -21,6 +21,7 @@
 ##
 ## Usage:
 ##   STAGE1_CKPT=<path> bash train/train_03b_stage1_50_cached.sh [gpu_id]
+##   STAGE1_CKPT=hf://org/repo/path/to/ckpt.ckpt bash train/train_03b_stage1_50_cached.sh
 ##   STAGE1_CKPT=<path> ENTROPY_MODE=inline bash train/train_03b_stage1_50_cached.sh 0
 ##   STAGE1_CKPT=<path> PASSES_PER_STEP=2 bash train/train_03b_stage1_50_cached.sh 1
 ##   STAGE1_CKPT=<path> DNA_CACHE=/custom/path/cache.pt bash train/train_03b_stage1_50_cached.sh
@@ -34,14 +35,39 @@ KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
 OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached}
 ENTROPY_MODE=${ENTROPY_MODE:-global}
+SEED=${SEED:-42}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
-STAGE1_CKPT=${STAGE1_CKPT:-}
+STAGE1_CKPT=${STAGE1_CKPT:-hf://iit-patna-cse-ai/GenoMorph/stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
+_S1_LOCAL_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft
 
-## Auto-detect best Stage 1 SFT checkpoint if not set
+## If hf:// URI: download into local checkpoint dir, then always auto-detect best
+if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
+    _HF_REPO=$(echo "$STAGE1_CKPT" | sed 's|hf://||' | cut -d'/' -f1-2)
+    _HF_FILE=$(echo "$STAGE1_CKPT" | sed "s|hf://${_HF_REPO}/||")
+    _HF_RUNNAME=$(basename "$_HF_FILE" .ckpt | sed 's/-epoch=.*//')
+    _HF_LOCAL_SUBDIR="$_S1_LOCAL_DIR/${_HF_RUNNAME}-hf"
+    echo "Downloading HF checkpoint into $_HF_LOCAL_SUBDIR: $STAGE1_CKPT"
+    mkdir -p "$_HF_LOCAL_SUBDIR"
+    if ! python3 -c "
+from huggingface_hub import hf_hub_download
+import sys
+try:
+    p = hf_hub_download('$_HF_REPO', '$_HF_FILE', local_dir='$_HF_LOCAL_SUBDIR')
+    print('Downloaded:', p)
+except Exception as e:
+    print('WARNING: HF download error:', str(e))
+    sys.exit(1)
+" 2>/dev/null; then
+        echo "WARNING: HF download failed — will use best existing local checkpoint"
+    fi
+    STAGE1_CKPT=""
+fi
+
+## Auto-detect best checkpoint by val_loss_epoch (always runs for hf:// and empty)
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft \
+    STAGE1_CKPT=$(find "$_S1_LOCAL_DIR" \
         -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
         | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
     [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
@@ -49,8 +75,8 @@ if [ -z "${STAGE1_CKPT:-}" ]; then
 fi
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    echo "ERROR: STAGE1_CKPT is not set."
-    echo "Usage: STAGE1_CKPT=<path> bash train/train_03b_stage1_50_cached.sh [gpu_id]"
+    echo "ERROR: STAGE1_CKPT is not set and could not be resolved."
+    echo "Usage: STAGE1_CKPT=<path|hf://org/repo/file> bash train/train_03b_stage1_50_cached.sh [gpu_id]"
     exit 1
 fi
 
@@ -97,6 +123,7 @@ echo "CUDA:          $CUDA_VISIBLE_DEVICES"
 echo "Stage 1 ckpt:  $STAGE1_CKPT"
 echo "Entropy mode:  $ENTROPY_MODE"
 echo "Passes/step:   ${PASSES_PER_STEP:-3}"
+echo "Seed:          ${SEED:-<none>}"
 echo "Output dir:    $OUTPUT_DIR"
 echo "KEGG dataset:  ${KEGG_CSV:-$KEGG_DATASET}"
 echo "DNA cache:     ${DNA_CACHE:-<not set — Evo2 will run live>}"
@@ -115,6 +142,8 @@ if [ -n "$DNA_CACHE" ]; then
 else
     DNA_CACHE_ARG=""
 fi
+
+SEED_ARG="--seed $SEED"
 
 stdbuf -oL -eL python train_latent_sft_cached.py \
     --stage1_ckpt            "$STAGE1_CKPT" \
@@ -139,5 +168,6 @@ stdbuf -oL -eL python train_latent_sft_cached.py \
     --wandb_project          "$WANDB_PROJECT" \
     --wandb_entity           "$WANDB_ENTITY" \
     $DNA_CACHE_ARG \
+    $SEED_ARG \
     --cache_dir              "$CACHE_DIR" \
     --device                 cuda

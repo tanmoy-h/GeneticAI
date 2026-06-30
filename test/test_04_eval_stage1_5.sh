@@ -34,10 +34,35 @@ KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-}
 
 STAGE1_CKPT=${STAGE1_CKPT:-}
+_S1_LOCAL_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft
 
-## Auto-detect best Stage 1 SFT checkpoint if not set
-if [ -z "${STAGE1_CKPT:-}" ]; then
-    STAGE1_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft \
+## Resolve STAGE1_CKPT: hf:// → download (fallback to local); empty → auto-detect
+if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
+    _HF_REPO=$(echo "$STAGE1_CKPT" | sed 's|hf://||' | cut -d'/' -f1-2)
+    _HF_FILE=$(echo "$STAGE1_CKPT" | sed "s|hf://${_HF_REPO}/||")
+    echo "Resolving HF checkpoint: $STAGE1_CKPT"
+    _DL_PATH=$(python3 -c "
+from huggingface_hub import hf_hub_download
+import sys
+try:
+    print(hf_hub_download('$_HF_REPO', '$_HF_FILE'))
+except Exception as e:
+    print(str(e), file=sys.stderr); sys.exit(1)
+" 2>/dev/null)
+    _DL_EXIT=$?
+    if [ $_DL_EXIT -eq 0 ] && [ -n "$_DL_PATH" ] && [ -f "$_DL_PATH" ]; then
+        echo "Stage 1 ckpt: $_DL_PATH"
+        STAGE1_CKPT="$_DL_PATH"
+    else
+        echo "WARNING: HF download failed — falling back to local auto-detect"
+        STAGE1_CKPT=$(find "$_S1_LOCAL_DIR" \
+            -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
+            | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
+        [ -n "$STAGE1_CKPT" ] && echo "Fallback STAGE1_CKPT: $STAGE1_CKPT" \
+            || echo "WARNING: could not auto-detect from $_S1_LOCAL_DIR"
+    fi
+elif [ -z "${STAGE1_CKPT:-}" ]; then
+    STAGE1_CKPT=$(find "$_S1_LOCAL_DIR" \
         -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
         | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
     [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
