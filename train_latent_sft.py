@@ -791,6 +791,12 @@ def process_batch(
 # ── Training loop ─────────────────────────────────────────────────────────────
 
 def train(args):
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+    print(f"[Stage1.5] Seed: {args.seed}")
+
     device = args.device
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -1212,6 +1218,8 @@ def parse_args():
                    help="Number of val examples to generate from")
     p.add_argument("--gen_max_new_tokens",    type=int,   default=800,
                    help="Max new tokens per generation sample")
+    p.add_argument("--seed",                  type=int, default=42,
+                   help="Random seed for reproducibility (data shuffling, sampling)")
     p.add_argument("--use_gate",             action="store_true", default=False,
                    help="Train Stage 1.5 WITH ThinkingResidualGate + DNAHiddenInjector "
                         "at fixed MAX_GATE_FACTOR. Saves thinking_gate.pt + dna_injector.pt "

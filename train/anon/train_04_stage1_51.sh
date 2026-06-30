@@ -29,16 +29,35 @@ WANDB_ENTITY=${WANDB_ENTITY:-iitp-cse}
 KEGG_DATASET=${KEGG_DATASET:-wanglab/kegg}
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51_anon}
+SEED=${SEED:-42}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 ## Start from best Stage 1.5 (no-gate) checkpoint, which already learned latent steps
 STAGE15_CKPT=${STAGE15_CKPT:-}
+_S15_CKPT_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached_anon
+_PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
-## Auto-detect best Stage 1.5 checkpoint if not set
+## Auto-detect best Stage 1.5 checkpoint from latest eval results JSON
 if [ -z "${STAGE15_CKPT:-}" ]; then
-    STAGE15_CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached_anon \
-        -name "model.pt" 2>/dev/null | sort -V | tail -1)
-    [ -n "$STAGE15_CKPT" ] && echo "Auto-detected STAGE15_CKPT: $STAGE15_CKPT" \
+    _RESULTS_JSON=$(find "$_PROJECT_DIR/test/anon/logs" \
+        -name "test_04_eval_stage1_5_results_*.json" 2>/dev/null | sort -V | tail -1)
+    if [ -n "$_RESULTS_JSON" ]; then
+        STAGE15_CKPT=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$_RESULTS_JSON'))
+    print(d['best']['full_path'])
+except: sys.exit(1)
+" 2>/dev/null)
+        [ -n "$STAGE15_CKPT" ] && echo "Auto-detected STAGE15_CKPT from eval results: $STAGE15_CKPT" \
+            || echo "WARNING: could not parse best checkpoint from $_RESULTS_JSON"
+    fi
+fi
+
+## Fallback: last model.pt by path sort (less reliable — set STAGE15_CKPT explicitly if possible)
+if [ -z "${STAGE15_CKPT:-}" ]; then
+    STAGE15_CKPT=$(find "$_S15_CKPT_DIR" -name "model.pt" 2>/dev/null | sort -V | tail -1)
+    [ -n "$STAGE15_CKPT" ] && echo "Fallback STAGE15_CKPT (last by path): $STAGE15_CKPT" \
         || echo "WARNING: could not auto-detect STAGE15_CKPT from train_03b_stage1_50_cached_anon"
 fi
 
@@ -67,6 +86,7 @@ echo "Logging to:    $LOG"
 echo "CUDA:          $CUDA_VISIBLE_DEVICES"
 echo "Stage 1.5 ckpt: $STAGE15_CKPT"
 echo "Output dir:    $OUTPUT_DIR"
+echo "Seed:          $SEED"
 echo "KEGG dataset:  ${KEGG_CSV:-$KEGG_DATASET}"
 nvidia-smi
 
@@ -101,6 +121,7 @@ stdbuf -oL -eL python train_latent_sft.py \
     --wandb_entity           "$WANDB_ENTITY" \
     --cache_dir              "$CACHE_DIR" \
     --device                 cuda \
+    --seed                   $SEED \
     --use_gate
 
 echo "=== Stage 1.5-with-gate done. Gate weights in $OUTPUT_DIR/best/thinking_gate.pt ==="
