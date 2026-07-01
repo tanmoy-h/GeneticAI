@@ -56,12 +56,12 @@ from adaptive_latent_grpo import (
     get_kegg_dataset,
     reward_funcs_registry,
 )
-from adaptive_latent_grpo_w6 import (
+from adaptive_latent_grpo import (
     ManifoldGateW6,
     _build_u_dna,
     make_ot_reward_func,
 )
-from adaptive_thinking_residual_w6 import (
+from adaptive_thinking_residual import (
     GateWarmupCallback,
     ThinkingResidualGRPOTrainer,
     _make_tr_gate_loss,
@@ -70,7 +70,7 @@ from adaptive_thinking_residual_w6 import (
 # _make_dual_mode_generate_w9 closes over latentSp_ctrl and calls
 # latentSp_ctrl.is_latent_step() / is_dna_inject() — duck-typed, so our
 # LatentSpControllerOptB works without touching the generation loop.
-from adaptive_thinking_residual_w9 import (
+from train_grpo_latent_reasoning import (
     MAX_GATE_FACTOR,
     GRPOScriptArgumentsW9,
     DNAHiddenInjector,

@@ -70,7 +70,7 @@ from genomorph.dataset.utils import truncate_dna
 # Gate modules — imported lazily so train_latent_sft.py works without w9 when --use_gate=False
 _GATE_AVAILABLE = False
 try:
-    from adaptive_thinking_residual_w9 import (
+    from train_grpo_latent_reasoning import (
         ThinkingResidualGate,
         DNAHiddenInjector,
         _make_dual_mode_forward_w9,

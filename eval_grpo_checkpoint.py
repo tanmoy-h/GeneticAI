@@ -60,8 +60,8 @@ from genomorph.models.dna_llm import DNALLMModel, get_target_modules
 from genomorph.models.evo2_tokenizer import register_evo2_tokenizer
 from genomorph.models.thinking_residual import ThinkingResidualGate
 from adaptive_latent_grpo import _load_sft_checkpoint
-from adaptive_latent_grpo_w6 import ManifoldGateW6, _build_u_dna
-from adaptive_thinking_residual_w9 import (
+from adaptive_latent_grpo import ManifoldGateW6, _build_u_dna
+from train_grpo_latent_reasoning import (
     DNAHiddenInjector,
     LatentSpController,
     patch_model_for_dual_mode_w9,

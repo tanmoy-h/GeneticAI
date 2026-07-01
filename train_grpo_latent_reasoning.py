@@ -73,19 +73,18 @@ from adaptive_latent_grpo import (
     get_kegg_dataset,
     reward_funcs_registry,
 )
-from adaptive_latent_grpo_w6 import (
+from adaptive_latent_grpo import (
     ManifoldGateW6,
     _build_u_dna,
     make_ot_reward_func,
 )
-from adaptive_thinking_residual_w6 import (
+from adaptive_thinking_residual import (
     ThinkingBudgetProcessor,
     GateWarmupCallback,
     ThinkingResidualGRPOTrainer,
+    SaveGateCallback,
     _make_tr_gate_loss,
 )
-# Import w8 SaveGateCallback (unchanged)
-from adaptive_thinking_residual_w8 import SaveGateCallback
 
 register_evo2_tokenizer()
 
