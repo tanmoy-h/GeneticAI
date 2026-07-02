@@ -163,16 +163,18 @@ class NucleotideDNAModule(DNABaseModule):
 
     @staticmethod
     def _extract_xml_answer(text: str) -> str:
-        # Primary: extract from after first </think>
-        if "</think>" in text:
-            answer = text.split("</think>", 1)[1].strip()
-            if answer.lower().startswith("answer:"):
-                answer = answer[len("answer:"):].strip()
-            answer = answer.replace("<|im_end|>", "").replace("<|endoftext|>", "").strip()
-            if answer:
-                return answer
-        # Fallback: model wrote Answer: inside <think> without closing it
-        m = re.search(r'Answer:\s*(.+?)(?:<\|im_end\|>|<\|endoftext\|>|\n|$)', text)
+        # Primary: scan each chunk after a </think> for explicit "Answer:" format.
+        # Model must write "Answer: X" after </think>; anything else gets 0 reward,
+        # which trains it to follow the format.
+        for part in text.split("</think>")[1:]:
+            if "Answer:" in part:
+                answer = re.split(r'[Aa]nswer:\s*', part, maxsplit=1)[-1]
+                answer = answer.split('\n')[0]
+                answer = answer.replace("<|im_end|>", "").replace("<|endoftext|>", "").strip()
+                if answer:
+                    return answer
+        # Fallback: Answer: written inside <think> without closing it
+        m = re.search(r'[Aa]nswer:\s*(.+?)(?:<\|im_end\|>|<\|endoftext\|>|\n|$)', text)
         if m:
             return m.group(1).strip()
         return ""
