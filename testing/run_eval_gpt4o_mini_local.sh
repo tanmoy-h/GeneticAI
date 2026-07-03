@@ -1,26 +1,27 @@
 #!/bin/bash
-#SBATCH --job-name=gpt4o_mini_eval
+#SBATCH --job-name=gpt4o_mini_eval_local
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=2
-#SBATCH --output=testing/logs/run_eval_gpt4o_mini_%j.out
-#SBATCH --error=testing/logs/run_eval_gpt4o_mini_%j.err
+#SBATCH --output=testing/logs/run_eval_gpt4o_mini_local_%j.out
+#SBATCH --error=testing/logs/run_eval_gpt4o_mini_local_%j.err
 
 ## Baseline evaluation of the 290 held-out records (test + val) with GPT-4o-mini.
+## Dataset: local CSV (genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv)
 ##
 ## Requires OPENAI_API_KEY to be set in the environment.
 ##
 ## Usage:
-##   OPENAI_API_KEY=sk-... bash testing/run_eval_gpt4o_mini.sh
+##   OPENAI_API_KEY=sk-... bash testing/run_eval_gpt4o_mini_local.sh
 ##
 ##   # Only test split:
-##   SPLITS="test" bash testing/run_eval_gpt4o_mini.sh
+##   SPLITS="test" bash testing/run_eval_gpt4o_mini_local.sh
 ##
 ##   # Resume an interrupted run:
-##   RESUME=1 OPENAI_API_KEY=sk-... bash testing/run_eval_gpt4o_mini.sh
+##   RESUME=1 OPENAI_API_KEY=sk-... bash testing/run_eval_gpt4o_mini_local.sh
 ##
 ##   # SLURM (set OPENAI_API_KEY in your env before sbatch):
-##   sbatch testing/run_eval_gpt4o_mini.sh
+##   sbatch testing/run_eval_gpt4o_mini_local.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -35,7 +36,7 @@ RPM_LIMIT=${RPM_LIMIT:-500}           # requests/min; gpt-4o-mini tier-1 limit
 
 if [ -z "${OPENAI_API_KEY:-}" ]; then
     echo "ERROR: OPENAI_API_KEY is not set."
-    echo "Usage: OPENAI_API_KEY=sk-... bash testing/run_eval_gpt4o_mini.sh"
+    echo "Usage: OPENAI_API_KEY=sk-... bash testing/run_eval_gpt4o_mini_local.sh"
     exit 1
 fi
 
@@ -45,8 +46,8 @@ cd "$(dirname "$0")/.."
 mkdir -p testing/logs
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUT_CSV=testing/logs/gpt4o_mini_${TIMESTAMP}.csv
-LOG=testing/logs/run_eval_gpt4o_mini_${TIMESTAMP}.log
+OUT_CSV=testing/logs/gpt4o_mini_local_${TIMESTAMP}.csv
+LOG=testing/logs/run_eval_gpt4o_mini_local_${TIMESTAMP}.log
 
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
@@ -59,7 +60,7 @@ echo "Output CSV:    $OUT_CSV"
 
 RESUME_FLAG=""
 if [ "${RESUME:-0}" = "1" ]; then
-    LAST_CSV=$(ls -t testing/logs/gpt4o_mini_*.csv 2>/dev/null | head -1)
+    LAST_CSV=$(ls -t testing/logs/gpt4o_mini_local_*.csv 2>/dev/null | head -1)
     if [ -n "$LAST_CSV" ]; then
         OUT_CSV="$LAST_CSV"
         RESUME_FLAG="--resume"

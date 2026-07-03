@@ -1,35 +1,26 @@
 #!/bin/bash
-#SBATCH --job-name=meditron_eval
+#SBATCH --job-name=biomistral_eval_anon
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=4
-#SBATCH --output=testing/logs/run_eval_meditron_%j.out
-#SBATCH --error=testing/logs/run_eval_meditron_%j.err
+#SBATCH --output=testing/logs/run_eval_biomistral_anon_%j.out
+#SBATCH --error=testing/logs/run_eval_biomistral_anon_%j.err
 
-## Baseline evaluation of the 290 held-out records (test + val) with Meditron.
-## Runs local HuggingFace inference — no API key required.
+## Baseline evaluation of the 290 held-out records (test + val) with BioMistral.
+## Dataset: iit-patna-cse-ai/kegg-anon-global (anonymized, HuggingFace)
 ##
 ## Usage:
-##   bash testing/run_eval_meditron.sh
-##
-##   # Only test split:
-##   SPLITS="test" bash testing/run_eval_meditron.sh
-##
-##   # Resume an interrupted run:
-##   RESUME=1 bash testing/run_eval_meditron.sh
-##
-##   # Use the 70B variant (needs multi-GPU or CPU offload):
-##   MODEL=epfl-llm/meditron-70b bash testing/run_eval_meditron.sh
-##
-##   # SLURM:
-##   sbatch testing/run_eval_meditron.sh
+##   bash testing/run_eval_biomistral_anon.sh
+##   RESUME=1 bash testing/run_eval_biomistral_anon.sh
+##   sbatch testing/run_eval_biomistral_anon.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
-KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
+HF_DATASET="iit-patna-cse-ai/kegg-anon-global"
+KEGG_CSV=${KEGG_CSV:-testing/logs/kegg_anon_hf_cache.csv}
 SPLITS=${SPLITS:-"test val"}
-MODEL=${MODEL:-epfl-llm/meditron-7b}
+MODEL=${MODEL:-BioMistral/BioMistral-7B}
 CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-512}
@@ -42,24 +33,49 @@ conda activate $CONDA_ENV
 cd "$(dirname "$0")/.."
 mkdir -p testing/logs
 
+## Download HF dataset once and cache as CSV
+if [ ! -f "$KEGG_CSV" ]; then
+    echo "Downloading $HF_DATASET → $KEGG_CSV"
+    python3 - <<PYEOF
+from datasets import load_dataset
+import csv
+
+ds = load_dataset("$HF_DATASET")
+fieldnames = ["split", "answer", "anon_question", "anon_reasoning",
+              "reference_sequence", "variant_sequence"]
+split_map = {"validation": "val", "train": "train", "test": "test"}
+
+with open("$KEGG_CSV", "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for split_name, split_ds in ds.items():
+        mapped = split_map.get(split_name, split_name)
+        for row in split_ds:
+            row = dict(row)
+            row["split"] = mapped
+            writer.writerow(row)
+print(f"Saved {sum(len(s) for s in ds.values())} records to $KEGG_CSV")
+PYEOF
+fi
+
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUT_CSV=testing/logs/meditron_${TIMESTAMP}.csv
-LOG=testing/logs/run_eval_meditron_${TIMESTAMP}.log
+OUT_CSV=testing/logs/biomistral_anon_${TIMESTAMP}.csv
+LOG=testing/logs/run_eval_biomistral_anon_${TIMESTAMP}.log
 
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
 echo "Logging to:    $LOG"
+echo "Dataset:       $HF_DATASET"
 echo "Model:         $MODEL"
 echo "Splits:        $SPLITS"
-echo "CSV:           $KEGG_CSV"
-echo "DNA truncate:  ${DNA_TRUNCATE} bp"
+echo "CSV cache:     $KEGG_CSV"
 echo "dtype:         $DTYPE"
 echo "Output CSV:    $OUT_CSV"
 nvidia-smi 2>/dev/null || true
 
 RESUME_FLAG=""
 if [ "${RESUME:-0}" = "1" ]; then
-    LAST_CSV=$(ls -t testing/logs/meditron_*.csv 2>/dev/null | head -1)
+    LAST_CSV=$(ls -t testing/logs/biomistral_anon_*.csv 2>/dev/null | head -1)
     if [ -n "$LAST_CSV" ]; then
         OUT_CSV="$LAST_CSV"
         RESUME_FLAG="--resume"
@@ -69,7 +85,7 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
-python testing/eval_meditron.py \
+python testing/eval_biomistral.py \
     --csv            "$KEGG_CSV" \
     --out            "$OUT_CSV" \
     --splits         $SPLITS \

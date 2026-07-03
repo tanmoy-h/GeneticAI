@@ -1,35 +1,35 @@
 #!/bin/bash
-#SBATCH --job-name=biomedgpt_eval
+#SBATCH --job-name=biomistral_eval_local
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=4
-#SBATCH --output=testing/logs/run_eval_biomedgpt_%j.out
-#SBATCH --error=testing/logs/run_eval_biomedgpt_%j.err
+#SBATCH --output=testing/logs/run_eval_biomistral_local_%j.out
+#SBATCH --error=testing/logs/run_eval_biomistral_local_%j.err
 
-## Baseline evaluation of the 290 held-out records (test + val) with BioMedGPT.
+## Baseline evaluation of the 290 held-out records (test + val) with BioMistral.
 ## Runs local HuggingFace inference — no API key required.
 ##
 ## Usage:
-##   bash testing/run_eval_biomedgpt.sh
+##   bash testing/run_eval_biomistral_local.sh
 ##
 ##   # Only test split:
-##   SPLITS="test" bash testing/run_eval_biomedgpt.sh
+##   SPLITS="test" bash testing/run_eval_biomistral_local.sh
 ##
 ##   # Resume an interrupted run:
-##   RESUME=1 bash testing/run_eval_biomedgpt.sh
+##   RESUME=1 bash testing/run_eval_biomistral_local.sh
 ##
 ##   # Specific GPU:
-##   CUDA_VISIBLE_DEVICES=1 bash testing/run_eval_biomedgpt.sh
+##   CUDA_VISIBLE_DEVICES=1 bash testing/run_eval_biomistral_local.sh
 ##
 ##   # SLURM:
-##   sbatch testing/run_eval_biomedgpt.sh
+##   sbatch testing/run_eval_biomistral_local.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 SPLITS=${SPLITS:-"test val"}
-MODEL=${MODEL:-PharMolix/BioMedGPT-LM-7B}
+MODEL=${MODEL:-BioMistral/BioMistral-7B}
 CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-512}
@@ -43,8 +43,8 @@ cd "$(dirname "$0")/.."
 mkdir -p testing/logs
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUT_CSV=testing/logs/biomedgpt_${TIMESTAMP}.csv
-LOG=testing/logs/run_eval_biomedgpt_${TIMESTAMP}.log
+OUT_CSV=testing/logs/biomistral_local_${TIMESTAMP}.csv
+LOG=testing/logs/run_eval_biomistral_local_${TIMESTAMP}.log
 
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
@@ -59,7 +59,7 @@ nvidia-smi 2>/dev/null || true
 
 RESUME_FLAG=""
 if [ "${RESUME:-0}" = "1" ]; then
-    LAST_CSV=$(ls -t testing/logs/biomedgpt_*.csv 2>/dev/null | head -1)
+    LAST_CSV=$(ls -t testing/logs/biomistral_local_*.csv 2>/dev/null | head -1)
     if [ -n "$LAST_CSV" ]; then
         OUT_CSV="$LAST_CSV"
         RESUME_FLAG="--resume"
@@ -69,7 +69,7 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
-python testing/eval_biomedgpt.py \
+python testing/eval_biomistral.py \
     --csv            "$KEGG_CSV" \
     --out            "$OUT_CSV" \
     --splits         $SPLITS \

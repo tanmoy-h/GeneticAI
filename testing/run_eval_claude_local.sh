@@ -1,29 +1,29 @@
 #!/bin/bash
-#SBATCH --job-name=claude_eval
+#SBATCH --job-name=claude_eval_local
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=2
-#SBATCH --output=testing/logs/run_eval_claude_%j.out
-#SBATCH --error=testing/logs/run_eval_claude_%j.err
+#SBATCH --output=testing/logs/run_eval_claude_local_%j.out
+#SBATCH --error=testing/logs/run_eval_claude_local_%j.err
 
 ## Baseline evaluation of the 290 held-out records (test + val) with Claude.
 ##
 ## Requires ANTHROPIC_API_KEY to be set in the environment.
 ##
 ## Usage:
-##   ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude.sh
+##   ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude_local.sh
 ##
 ##   # Only test split:
-##   SPLITS="test" bash testing/run_eval_claude.sh
+##   SPLITS="test" bash testing/run_eval_claude_local.sh
 ##
 ##   # Resume an interrupted run:
-##   RESUME=1 ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude.sh
+##   RESUME=1 ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude_local.sh
 ##
 ##   # Different model (e.g. claude-opus-4-8):
-##   MODEL=claude-opus-4-8 ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude.sh
+##   MODEL=claude-opus-4-8 ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude_local.sh
 ##
 ##   # SLURM (set ANTHROPIC_API_KEY in your env before sbatch):
-##   sbatch testing/run_eval_claude.sh
+##   sbatch testing/run_eval_claude_local.sh
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -37,7 +37,7 @@ RPM_LIMIT=${RPM_LIMIT:-60}            # requests/min; Haiku standard tier limit
 
 if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
     echo "ERROR: ANTHROPIC_API_KEY is not set."
-    echo "Usage: ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude.sh"
+    echo "Usage: ANTHROPIC_API_KEY=sk-ant-... bash testing/run_eval_claude_local.sh"
     exit 1
 fi
 
@@ -47,8 +47,8 @@ cd "$(dirname "$0")/.."
 mkdir -p testing/logs
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUT_CSV=testing/logs/claude_${TIMESTAMP}.csv
-LOG=testing/logs/run_eval_claude_${TIMESTAMP}.log
+OUT_CSV=testing/logs/claude_local_${TIMESTAMP}.csv
+LOG=testing/logs/run_eval_claude_local_${TIMESTAMP}.log
 
 exec > >(tee "$LOG") 2>&1
 echo "Command:       bash $0 $*"
@@ -62,7 +62,7 @@ echo "Output CSV:    $OUT_CSV"
 
 RESUME_FLAG=""
 if [ "${RESUME:-0}" = "1" ]; then
-    LAST_CSV=$(ls -t testing/logs/claude_*.csv 2>/dev/null | head -1)
+    LAST_CSV=$(ls -t testing/logs/claude_local_*.csv 2>/dev/null | head -1)
     if [ -n "$LAST_CSV" ]; then
         OUT_CSV="$LAST_CSV"
         RESUME_FLAG="--resume"
