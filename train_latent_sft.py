@@ -754,9 +754,12 @@ def process_batch(
         else:
             ent_b = compute_step_entropies(logits_all[b], spans_b)
 
-        # Select s lowest-entropy step contents
-        n_replace = min(s, len(spans_b))
-        replace_indices = sorted(range(len(spans_b)), key=lambda i: ent_b[i])[:n_replace]
+        # Select s lowest-entropy step contents.
+        # Never replace the last step — it bridges directly to </think>/Answer: and
+        # compressing it teaches the model to close the thinking block prematurely.
+        eligible        = list(range(len(spans_b) - 1)) if len(spans_b) > 1 else []
+        n_replace       = min(s, len(eligible))
+        replace_indices = sorted(eligible, key=lambda i: ent_b[i])[:n_replace]
 
         pe = prompt_ends[b] if prompt_ends is not None else 0
         new_ids_b, labels_b, weights_b = inject_latent_markers(
