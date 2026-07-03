@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #SBATCH --job-name=biomedgpt_eval_local
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G

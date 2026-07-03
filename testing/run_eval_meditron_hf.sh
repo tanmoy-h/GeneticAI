@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #SBATCH --job-name=meditron_eval_hf
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G

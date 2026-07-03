@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #SBATCH --job-name=gpt4o_mini_eval_hf
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00

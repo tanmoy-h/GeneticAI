@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 #SBATCH --job-name=claude_eval_anon
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00
