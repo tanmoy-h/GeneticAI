@@ -101,7 +101,7 @@ python testing/eval_gpt4o_mini.py \
     --max_tokens   "$MAX_TOKENS" \
     --temperature  "$TEMPERATURE" \
     --rpm_limit    "$RPM_LIMIT" \
-    $RESUME_FLAG
+    $RESUME_FLAG \
     $LIMIT_FLAG
 
 echo ""

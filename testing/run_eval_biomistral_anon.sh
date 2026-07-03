@@ -100,7 +100,7 @@ python testing/eval_biomistral.py \
     --dtype          "$DTYPE" \
     --dna_truncate   "$DNA_TRUNCATE" \
     --max_new_tokens "$MAX_NEW_TOKENS" \
-    $RESUME_FLAG
+    $RESUME_FLAG \
     $LIMIT_FLAG
 
 echo ""

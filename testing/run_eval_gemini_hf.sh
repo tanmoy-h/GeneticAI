@@ -104,7 +104,7 @@ python testing/eval_gemini.py \
     --dna_truncate "$DNA_TRUNCATE" \
     --max_tokens   "$MAX_TOKENS" \
     --rpm_limit    "$RPM_LIMIT" \
-    $RESUME_FLAG
+    $RESUME_FLAG \
     $LIMIT_FLAG
 
 echo ""
