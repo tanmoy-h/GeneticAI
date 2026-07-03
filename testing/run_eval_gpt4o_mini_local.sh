@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #SBATCH --job-name=gpt4o_mini_eval_local
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00
@@ -32,6 +32,7 @@ DNA_TRUNCATE=${DNA_TRUNCATE:-500}     # bp sent per sequence (keeps cost low)
 MAX_TOKENS=${MAX_TOKENS:-512}
 TEMPERATURE=${TEMPERATURE:-0}
 RPM_LIMIT=${RPM_LIMIT:-500}           # requests/min; gpt-4o-mini tier-1 limit
+LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
 ## ─────────────────────────────────────────────────────────────────────────────
 
 if [ -z "${OPENAI_API_KEY:-}" ]; then
@@ -70,6 +71,11 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
+LIMIT_FLAG=""
+if [ -n "${LIMIT:-}" ]; then
+    LIMIT_FLAG="--limit $LIMIT"
+fi
+
 python testing/eval_gpt4o_mini.py \
     --csv          "$KEGG_CSV" \
     --out          "$OUT_CSV" \
@@ -80,6 +86,7 @@ python testing/eval_gpt4o_mini.py \
     --temperature  "$TEMPERATURE" \
     --rpm_limit    "$RPM_LIMIT" \
     $RESUME_FLAG
+    $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="

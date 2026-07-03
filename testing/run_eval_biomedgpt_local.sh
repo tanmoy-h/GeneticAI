@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #SBATCH --job-name=biomedgpt_eval_local
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
@@ -34,6 +34,7 @@ CACHE_DIR=${CACHE_DIR:-~/.cache/huggingface}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-512}
 DTYPE=${DTYPE:-bfloat16}
+LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
@@ -69,6 +70,11 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
+LIMIT_FLAG=""
+if [ -n "${LIMIT:-}" ]; then
+    LIMIT_FLAG="--limit $LIMIT"
+fi
+
 python testing/eval_biomedgpt.py \
     --csv            "$KEGG_CSV" \
     --out            "$OUT_CSV" \
@@ -79,6 +85,7 @@ python testing/eval_biomedgpt.py \
     --dna_truncate   "$DNA_TRUNCATE" \
     --max_new_tokens "$MAX_NEW_TOKENS" \
     $RESUME_FLAG
+    $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="

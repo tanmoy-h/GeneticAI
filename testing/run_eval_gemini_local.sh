@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #SBATCH --job-name=gemini_eval_local
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00
@@ -33,6 +33,7 @@ MODEL=${MODEL:-gemini-2.0-flash}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}     # bp sent per sequence (keeps cost low)
 MAX_TOKENS=${MAX_TOKENS:-512}
 RPM_LIMIT=${RPM_LIMIT:-60}            # requests/min; Flash free-tier limit
+LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
 ## ─────────────────────────────────────────────────────────────────────────────
 
 if [ -z "${GEMINI_API_KEY:-}" ]; then
@@ -72,6 +73,11 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
+LIMIT_FLAG=""
+if [ -n "${LIMIT:-}" ]; then
+    LIMIT_FLAG="--limit $LIMIT"
+fi
+
 python testing/eval_gemini.py \
     --csv          "$KEGG_CSV" \
     --out          "$OUT_CSV" \
@@ -81,6 +87,7 @@ python testing/eval_gemini.py \
     --max_tokens   "$MAX_TOKENS" \
     --rpm_limit    "$RPM_LIMIT" \
     $RESUME_FLAG
+    $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="

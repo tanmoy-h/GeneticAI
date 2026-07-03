@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #SBATCH --job-name=biomedgpt_eval_anon
 #SBATCH --gres=gpu:1
 #SBATCH --mem=32G
@@ -85,6 +85,11 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
+LIMIT_FLAG=""
+if [ -n "${LIMIT:-}" ]; then
+    LIMIT_FLAG="--limit $LIMIT"
+fi
+
 python testing/eval_biomedgpt.py \
     --csv            "$KEGG_CSV" \
     --out            "$OUT_CSV" \
@@ -95,6 +100,7 @@ python testing/eval_biomedgpt.py \
     --dna_truncate   "$DNA_TRUNCATE" \
     --max_new_tokens "$MAX_NEW_TOKENS" \
     $RESUME_FLAG
+    $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="

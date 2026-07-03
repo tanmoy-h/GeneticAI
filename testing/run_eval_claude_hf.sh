@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 #SBATCH --job-name=claude_eval_hf
 #SBATCH --mem=8G
 #SBATCH --time=02:00:00
@@ -23,6 +23,7 @@ MODEL=${MODEL:-claude-haiku-4-5}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}
 MAX_TOKENS=${MAX_TOKENS:-512}
 RPM_LIMIT=${RPM_LIMIT:-60}
+LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
 ## ─────────────────────────────────────────────────────────────────────────────
 
 if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
@@ -90,6 +91,11 @@ if [ "${RESUME:-0}" = "1" ]; then
     fi
 fi
 
+LIMIT_FLAG=""
+if [ -n "${LIMIT:-}" ]; then
+    LIMIT_FLAG="--limit $LIMIT"
+fi
+
 python testing/eval_claude.py \
     --csv          "$KEGG_CSV" \
     --out          "$OUT_CSV" \
@@ -99,6 +105,7 @@ python testing/eval_claude.py \
     --max_tokens   "$MAX_TOKENS" \
     --rpm_limit    "$RPM_LIMIT" \
     $RESUME_FLAG
+    $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="
