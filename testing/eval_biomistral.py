@@ -120,6 +120,8 @@ def parse_args():
     p.add_argument("--dna_truncate",   type=int, default=500)
     p.add_argument("--max_new_tokens", type=int, default=512)
     p.add_argument("--resume",  action="store_true")
+    p.add_argument("--limit",   type=int, default=None,
+                   help="Evaluate only the first N records (default: all)")
     return p.parse_args()
 
 
@@ -152,6 +154,8 @@ def main():
     print("Model loaded.")
 
     records = load_records(args.csv, args.splits)
+    if args.limit:
+        records = records[:args.limit]
     print(f"Loaded {len(records)} records from splits: {args.splits}")
 
     out_path = Path(args.out)

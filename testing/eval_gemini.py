@@ -112,6 +112,8 @@ def parse_args():
                    help="Requests per minute limit to avoid rate errors (default: 60)")
     p.add_argument("--resume",  action="store_true",
                    help="Skip rows already present in the output CSV")
+    p.add_argument("--limit",   type=int, default=None,
+                   help="Evaluate only the first N records (default: all)")
     return p.parse_args()
 
 
@@ -132,6 +134,8 @@ def main():
     )
 
     records = load_records(args.csv, args.splits)
+    if args.limit:
+        records = records[:args.limit]
     print(f"Loaded {len(records)} records from splits: {args.splits}")
 
     out_path = Path(args.out)
