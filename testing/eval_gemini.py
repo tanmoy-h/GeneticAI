@@ -42,12 +42,25 @@ You are a computational genomics assistant. You will be given:
    gene identifiers (GENE_N) and molecule identifiers (MOL_N).
 3. A question asking you to identify the disease caused by the variant allele.
 
-Reason step by step through the pathway logic. Then give your final answer on
-its own line in exactly this format:
-    Answer: <disease name>
+Reason step by step through the pathway logic, then state the disease name.
 
-Keep the disease name concise (e.g. "alzheimer's disease", "thyroid dyshormonogenesis").
+You MUST respond with valid JSON in exactly this structure:
+{
+  "reasoning": "<step-by-step reasoning>",
+  "answer": "<disease name>"
+}
+
+Keep the answer concise (e.g. "alzheimer's disease", "thyroid dyshormonogenesis").
 """
+
+_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "answer":    {"type": "string"},
+    },
+    "required": ["reasoning", "answer"],
+}
 
 def build_user_message(question: str, ref_seq: str, var_seq: str,
                         dna_truncate: int = 500) -> str:
@@ -73,19 +86,15 @@ def build_user_message(question: str, ref_seq: str, var_seq: str,
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_answer(text: str) -> str:
-    # Gemini doesn't use </think> tags; scan full text for Answer: pattern.
-    # Also handle the case where GenoMorph-style </think> appears in the response.
-    for part in text.split("</think>")[1:]:
-        if "Answer:" in part or "answer:" in part:
-            answer = re.split(r'[Aa]nswer:\s*', part, maxsplit=1)[-1]
-            answer = answer.split('\n')[0].strip()
-            if answer:
-                return answer
-    # Fallback: scan full text for Answer: pattern
+    # Primary: parse JSON response from structured output mode
+    try:
+        data = json.loads(text)
+        return data.get("answer", "").strip()
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    # Fallback: scan for Answer: pattern (plain-text responses)
     m = re.search(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text)
-    if m:
-        return m.group(1).strip()
-    return ""
+    return m.group(1).strip() if m else ""
 
 
 def is_correct(pred: str, gt: str) -> bool:
@@ -139,6 +148,8 @@ def main():
     gen_config = genai_types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         max_output_tokens=args.max_tokens,
+        response_mime_type="application/json",
+        response_schema=_RESPONSE_SCHEMA,
     )
 
     records = load_records(args.csv, args.splits)
