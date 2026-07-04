@@ -92,9 +92,10 @@ def extract_answer(text: str) -> str:
     m = re.search(r'disease\s+["\']([^"\']+)["\']', text, re.I)
     if m:
         return m.group(1).strip()
-    # Prose: "cause/causes/caused/contributes to [the] X."
+    # Prose: "cause/causes/contributes to/results in/leads to [the] X."
     m = re.search(
-        r'(?:cause[sd]?|contributes?\s+to)\s+(?:the\s+)?([a-z][^.\n]{3,80})(?:\.|$)',
+        r'(?:cause[sd]?|contributes?\s+to|results?\s+in|leads?\s+to|associated\s+with)'
+        r'\s+(?:the\s+(?:disease\s+)?)?([a-z][^.\n]{3,80})(?:\.|$)',
         text, re.I
     )
     if m:
