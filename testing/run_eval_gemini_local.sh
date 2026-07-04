@@ -31,7 +31,7 @@ KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv
 SPLITS=${SPLITS:-"test val"}
 MODEL=${MODEL:-gemini-2.5-flash}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}     # bp sent per sequence (keeps cost low)
-MAX_TOKENS=${MAX_TOKENS:-512}
+MAX_TOKENS=${MAX_TOKENS:-1024}
 RPM_LIMIT=${RPM_LIMIT:-60}            # requests/min; Flash free-tier limit
 LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
 ## ─────────────────────────────────────────────────────────────────────────────

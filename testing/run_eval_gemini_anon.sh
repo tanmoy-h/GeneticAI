@@ -21,7 +21,7 @@ KEGG_CSV=${KEGG_CSV:-testing/logs/kegg_anon_hf_cache.csv}
 SPLITS=${SPLITS:-"test val"}
 MODEL=${MODEL:-gemini-2.5-flash}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}
-MAX_TOKENS=${MAX_TOKENS:-512}
+MAX_TOKENS=${MAX_TOKENS:-1024}
 RPM_LIMIT=${RPM_LIMIT:-60}
 LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
 ## ─────────────────────────────────────────────────────────────────────────────

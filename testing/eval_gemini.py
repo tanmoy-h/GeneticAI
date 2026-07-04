@@ -126,8 +126,8 @@ def parse_args():
                    help="Gemini model ID (default: gemini-2.5-flash)")
     p.add_argument("--dna_truncate", type=int, default=500,
                    help="Max bp per DNA sequence sent to the model (default: 500)")
-    p.add_argument("--max_tokens",   type=int, default=512,
-                   help="Max output tokens per request (default: 512)")
+    p.add_argument("--max_tokens",   type=int, default=1024,
+                   help="Max output tokens per request (default: 1024)")
     p.add_argument("--rpm_limit",    type=int, default=60,
                    help="Requests per minute limit to avoid rate errors (default: 60)")
     p.add_argument("--resume",  action="store_true",
