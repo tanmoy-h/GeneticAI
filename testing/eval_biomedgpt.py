@@ -69,26 +69,36 @@ def build_user_message(question: str, ref_seq: str, var_seq: str,
     )
 
 def build_prompt(tokenizer, user_msg: str) -> str:
-    # BioMedGPT-LM-7B is a base language model (not instruction-tuned).
-    # Chat templates cause immediate EOS — use plain text continuation instead.
-    return (
-        f"{SYSTEM_PROMPT}\n"
-        f"{user_msg}\n\n"
-        f"Answer: "
-    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": user_msg},
+    ]
+    try:
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+    except Exception:
+        return f"### System:\n{SYSTEM_PROMPT}\n\n### User:\n{user_msg}\n\n### Assistant:\n"
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_answer(text: str) -> str:
-    # Prompt is primed with "Answer: " so the first line is the disease name.
-    first_line = text.split('\n')[0].strip().rstrip('.')
-    if first_line and len(first_line) < 120:
-        return first_line
-    # Fallback: explicit Answer: tag
+    # Explicit Answer: tag
     m = re.search(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text)
     if m:
         return m.group(1).strip()
+    # Prose: 'disease "X"' or "disease 'X'"
+    m = re.search(r'disease\s+["\']([^"\']+)["\']', text, re.I)
+    if m:
+        return m.group(1).strip()
+    # Prose: "cause/causes/caused/contributes to [the] X."
+    m = re.search(
+        r'(?:cause[sd]?|contributes?\s+to)\s+(?:the\s+)?([a-z][^.\n]{3,80})(?:\.|$)',
+        text, re.I
+    )
+    if m:
+        return m.group(1).strip().rstrip('"\'')
     return ""
 
 def is_correct(pred: str, gt: str) -> bool:
@@ -210,7 +220,7 @@ def main():
                     pad_token_id=tokenizer.eos_token_id,
                 )
             new_ids = output_ids[0][inputs["input_ids"].shape[-1]:]
-            raw = tokenizer.decode(new_ids, skip_special_tokens=True)
+            raw = tokenizer.decode(new_ids, skip_special_tokens=True).strip()
         except Exception as e:
             print(f"  [idx={idx}] Inference error: {e}")
             raw = ""
