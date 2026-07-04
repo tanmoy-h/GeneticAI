@@ -47,10 +47,11 @@ Reason step by step through the pathway logic, then state the disease name.
 You MUST respond with valid JSON in exactly this structure — answer field FIRST:
 {
   "answer": "<disease name>",
-  "reasoning": "<step-by-step reasoning>"
+  "reasoning": "<brief reasoning, 3-5 sentences max>"
 }
 
 Keep the answer concise (e.g. "alzheimer's disease", "thyroid dyshormonogenesis").
+Keep the reasoning brief — 3 to 5 sentences maximum.
 """
 
 _RESPONSE_SCHEMA = {
