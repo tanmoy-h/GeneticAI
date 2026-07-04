@@ -311,6 +311,21 @@ class NucleotideDNAModule(DNABaseModule):
         return [0.1 if match else -0.1 for match in matches]
 
     @staticmethod
+    def latent_format_reward_func(completions, **kwargs) -> List[float]:
+        """Penalise completions where <start-latent> is not matched by <end-latent>.
+        Each unmatched <start-latent> (i.e. a block cut short by </think>) scores -0.5.
+        Completions with no latent markers score 0.0 (neutral).
+        """
+        rewards = []
+        for comp in completions:
+            text = comp[0]["content"]
+            n_start   = text.count("<start-latent>")
+            n_end     = text.count("<end-latent>")
+            unmatched = max(0, n_start - n_end)
+            rewards.append(-0.5 * unmatched)
+        return rewards
+
+    @staticmethod
     def xmlcount_reward_func(completions, **kwargs) -> List[float]:
         contents = [completion[0]["content"] for completion in completions]
         return [NucleotideDNAModule._count_xml(c) for c in contents]

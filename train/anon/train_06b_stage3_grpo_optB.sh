@@ -162,7 +162,7 @@ args=(
     --beta                   0.05
     --epsilon                0.1
     --max_grad_norm          0.1
-    --reward_funcs           xmlcount soft_format correctness completion_quality reasoning_quality ot_distance latent_usage
+    --reward_funcs           xmlcount soft_format correctness completion_quality reasoning_quality latent_format ot_distance latent_usage
     --manifold_weight        0.01
     --max_clip_loss_weight   0.0
 

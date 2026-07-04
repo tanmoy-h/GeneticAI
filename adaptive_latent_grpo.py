@@ -254,6 +254,7 @@ reward_funcs_registry = {
     "correctness":        NucleotideDNAModule.correctness_reward_func,
     "completion_quality": NucleotideDNAModule.completion_quality_reward_func,
     "reasoning_quality":  NucleotideDNAModule.reasoning_quality_reward_func,
+    "latent_format":      NucleotideDNAModule.latent_format_reward_func,
     # Legacy (kept for checkpoint compat)
     "strict_format":      NucleotideDNAModule.strict_format_reward_func,
     "concise":            NucleotideDNAModule.concise_reward_func,
