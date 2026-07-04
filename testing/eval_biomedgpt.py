@@ -69,18 +69,13 @@ def build_user_message(question: str, ref_seq: str, var_seq: str,
     )
 
 def build_prompt(tokenizer, user_msg: str) -> str:
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user",   "content": user_msg},
-    ]
-    try:
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-    except Exception:
-        prompt = f"### System:\n{SYSTEM_PROMPT}\n\n### User:\n{user_msg}\n\n### Assistant:\n"
-    # Prime the assistant turn so the model completes the disease name directly.
-    return prompt + "Answer: "
+    # BioMedGPT-LM-7B is a base language model (not instruction-tuned).
+    # Chat templates cause immediate EOS — use plain text continuation instead.
+    return (
+        f"{SYSTEM_PROMPT}\n"
+        f"{user_msg}\n\n"
+        f"Answer: "
+    )
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────
