@@ -51,11 +51,21 @@ Keep the disease name concise (e.g. "alzheimer's disease", "thyroid dyshormonoge
 
 def build_user_message(question: str, ref_seq: str, var_seq: str,
                         dna_truncate: int = 500) -> str:
-    ref_short = ref_seq[:dna_truncate] + ("..." if len(ref_seq) > dna_truncate else "")
-    var_short = var_seq[:dna_truncate] + ("..." if len(var_seq) > dna_truncate else "")
+    # Center window on the first position where sequences differ.
+    # Falls back to the sequence midpoint when they are identical.
+    min_len  = min(len(ref_seq), len(var_seq))
+    diff_pos = next((i for i in range(min_len) if ref_seq[i] != var_seq[i]), len(ref_seq) // 2)
+    half     = dna_truncate // 2
+    start    = max(0, diff_pos - half)
+    end      = min(len(ref_seq), start + dna_truncate)
+    start    = max(0, end - dna_truncate)
+    prefix   = f"[+{start}bp] " if start > 0 else ""
+    suffix   = "..." if end < len(ref_seq) else ""
+    ref_short = prefix + ref_seq[start:end] + suffix
+    var_short = prefix + var_seq[start:end] + suffix
     return (
-        f"Reference sequence (first {dna_truncate} bp): {ref_short}\n"
-        f"Variant sequence   (first {dna_truncate} bp): {var_short}\n\n"
+        f"Reference sequence ({dna_truncate} bp around variant): {ref_short}\n"
+        f"Variant sequence   ({dna_truncate} bp around variant): {var_short}\n\n"
         f"{question}"
     )
 
