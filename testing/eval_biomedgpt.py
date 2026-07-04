@@ -35,17 +35,20 @@ except ImportError:
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are a computational genomics assistant. You will be given:
-1. A reference DNA sequence and a variant DNA sequence for a gene.
-2. A chromosome number and a gene network pathway definition using anonymized
-   gene identifiers (GENE_N) and molecule identifiers (MOL_N).
-3. A question asking you to identify the disease caused by the variant allele.
+You are a computational genomics assistant. You will be given a reference DNA \
+sequence, a variant DNA sequence, a chromosome number, and a gene network \
+pathway. Identify the disease caused by the variant allele.
+Always end your response with exactly:
+Answer: <disease name>
 
-Reason step by step through the pathway logic. Then give your final answer on
-its own line in exactly this format:
-    Answer: <disease name>
+Example:
+Reference sequence (500 bp around variant): ATCG...
+Variant sequence   (500 bp around variant): ATGG...
+Chromosome Number: 21
+Network Definition of the pathway: GENE_5* -> SOD1 -> ROS
+Given this context, what disease does this GENE_5 allele contribute to?
+Answer: amyotrophic lateral sclerosis
 
-Keep the disease name concise (e.g. "alzheimer's disease", "thyroid dyshormonogenesis").
 """
 
 def build_user_message(question: str, ref_seq: str, var_seq: str,
@@ -84,22 +87,11 @@ def build_prompt(tokenizer, user_msg: str) -> str:
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_answer(text: str) -> str:
-    # Explicit Answer: tag
-    m = re.search(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text)
-    if m:
-        return m.group(1).strip()
-    # Prose: 'disease "X"' or "disease 'X'"
-    m = re.search(r'disease\s+["\']([^"\']+)["\']', text, re.I)
-    if m:
-        return m.group(1).strip()
-    # Prose: "cause/causes/contributes to/results in/leads to [the] X."
-    m = re.search(
-        r'(?:cause[sd]?|contributes?\s+to|results?\s+in|leads?\s+to|associated\s+with)'
-        r'\s+(?:the\s+(?:disease\s+)?)?([a-z][^.\n]{3,80})(?:\.|$)',
-        text, re.I
-    )
-    if m:
-        return m.group(1).strip().rstrip('"\'')
+    # The few-shot example teaches the model to end with "Answer: X".
+    # Take the LAST occurrence so the example answer is not picked up.
+    matches = list(re.finditer(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text))
+    if matches:
+        return matches[-1].group(1).strip()
     return ""
 
 def is_correct(pred: str, gt: str) -> bool:
