@@ -74,22 +74,23 @@ def build_prompt(tokenizer, user_msg: str) -> str:
         {"role": "user",   "content": user_msg},
     ]
     try:
-        return tokenizer.apply_chat_template(
+        prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
     except Exception:
-        return f"### System:\n{SYSTEM_PROMPT}\n\n### User:\n{user_msg}\n\n### Assistant:\n"
+        prompt = f"### System:\n{SYSTEM_PROMPT}\n\n### User:\n{user_msg}\n\n### Assistant:\n"
+    # Prime the assistant turn so the model completes the disease name directly.
+    return prompt + "Answer: "
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_answer(text: str) -> str:
-    for part in text.split("</think>")[1:]:
-        if "Answer:" in part or "answer:" in part:
-            answer = re.split(r'[Aa]nswer:\s*', part, maxsplit=1)[-1]
-            answer = answer.split('\n')[0].strip()
-            if answer:
-                return answer
+    # Prompt is primed with "Answer: " so the first line is the disease name.
+    first_line = text.split('\n')[0].strip().rstrip('.')
+    if first_line and len(first_line) < 120:
+        return first_line
+    # Fallback: explicit Answer: tag
     m = re.search(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text)
     if m:
         return m.group(1).strip()

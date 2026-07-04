@@ -76,16 +76,17 @@ def build_prompt(tokenizer, user_msg: str) -> str:
         {"role": "user",   "content": user_msg},
     ]
     try:
-        return tokenizer.apply_chat_template(
+        prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
     except Exception:
         # Meditron paper format
-        return (
+        prompt = (
             f"<s> ### System:\n{SYSTEM_PROMPT}\n\n"
             f"### Question:\n{user_msg}\n\n"
             f"### Response:\n"
         )
+    return prompt + "Answer: "
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────

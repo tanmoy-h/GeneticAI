@@ -74,12 +74,13 @@ def build_prompt(tokenizer, user_msg: str) -> str:
         {"role": "user", "content": f"{SYSTEM_PROMPT}\n\n{user_msg}"},
     ]
     try:
-        return tokenizer.apply_chat_template(
+        prompt = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
     except Exception:
         # Mistral fallback: system is prepended to user turn (no system role)
-        return f"[INST] {SYSTEM_PROMPT}\n\n{user_msg} [/INST]"
+        prompt = f"[INST] {SYSTEM_PROMPT}\n\n{user_msg} [/INST]"
+    return prompt + "Answer: "
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────
