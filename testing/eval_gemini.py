@@ -237,7 +237,7 @@ def main():
             "answer_pred": pred,
             "correct":     int(correct),
             "raw_response": raw,
-            "question":    question[:200],
+            "question":    question,
         })
         out_f.flush()
 
