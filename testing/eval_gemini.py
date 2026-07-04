@@ -27,9 +27,10 @@ from pathlib import Path
 from typing import List, Dict
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
 except ImportError:
-    sys.exit("google-generativeai package not found. Install with: pip install google-generativeai")
+    sys.exit("google-genai package not found. Install with: pip install google-genai")
 
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
@@ -102,8 +103,8 @@ def parse_args():
                    help="Output CSV path (metrics JSON written alongside)")
     p.add_argument("--splits",  nargs="+", default=["test", "val"],
                    help="Which splits to evaluate (default: test val)")
-    p.add_argument("--model",   default="gemini-2.0-flash",
-                   help="Gemini model ID (default: gemini-2.0-flash)")
+    p.add_argument("--model",   default="gemini-2.5-flash",
+                   help="Gemini model ID (default: gemini-2.5-flash)")
     p.add_argument("--dna_truncate", type=int, default=500,
                    help="Max bp per DNA sequence sent to the model (default: 500)")
     p.add_argument("--max_tokens",   type=int, default=512,
@@ -123,14 +124,11 @@ def main():
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         sys.exit("GEMINI_API_KEY environment variable not set.")
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
-    model_obj = genai.GenerativeModel(
-        model_name=args.model,
+    gen_config = genai_types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
-        generation_config=genai.types.GenerationConfig(
-            max_output_tokens=args.max_tokens,
-        ),
+        max_output_tokens=args.max_tokens,
     )
 
     records = load_records(args.csv, args.splits)
@@ -178,7 +176,11 @@ def main():
         t0 = time.time()
         raw = ""
         try:
-            resp = model_obj.generate_content(user_msg)
+            resp = client.models.generate_content(
+                model=args.model,
+                contents=user_msg,
+                config=gen_config,
+            )
             try:
                 raw = resp.text or ""
             except Exception:
@@ -188,7 +190,11 @@ def main():
             print(f"  [idx={idx}] API error: {e} — retrying in 30s")
             time.sleep(30)
             try:
-                resp = model_obj.generate_content(user_msg)
+                resp = client.models.generate_content(
+                    model=args.model,
+                    contents=user_msg,
+                    config=gen_config,
+                )
                 try:
                     raw = resp.text or ""
                 except Exception:

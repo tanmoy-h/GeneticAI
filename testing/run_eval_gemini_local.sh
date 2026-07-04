@@ -19,7 +19,7 @@
 ##   # Resume an interrupted run:
 ##   RESUME=1 GEMINI_API_KEY=AIza... bash testing/run_eval_gemini_local.sh
 ##
-##   # Different model (e.g. gemini-2.0-flash-thinking-exp or gemini-1.5-pro):
+##   # Different model (e.g. gemini-2.5-flash-thinking-exp or gemini-1.5-pro):
 ##   MODEL=gemini-1.5-pro GEMINI_API_KEY=AIza... bash testing/run_eval_gemini_local.sh
 ##
 ##   # SLURM (set GEMINI_API_KEY in your env before sbatch):
@@ -29,7 +29,7 @@
 CONDA_ENV=dna_env
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 SPLITS=${SPLITS:-"test val"}
-MODEL=${MODEL:-gemini-2.0-flash}
+MODEL=${MODEL:-gemini-2.5-flash}
 DNA_TRUNCATE=${DNA_TRUNCATE:-500}     # bp sent per sequence (keeps cost low)
 MAX_TOKENS=${MAX_TOKENS:-512}
 RPM_LIMIT=${RPM_LIMIT:-60}            # requests/min; Flash free-tier limit
