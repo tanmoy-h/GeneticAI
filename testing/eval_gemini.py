@@ -44,10 +44,10 @@ You are a computational genomics assistant. You will be given:
 
 Reason step by step through the pathway logic, then state the disease name.
 
-You MUST respond with valid JSON in exactly this structure:
+You MUST respond with valid JSON in exactly this structure — answer field FIRST:
 {
-  "reasoning": "<step-by-step reasoning>",
-  "answer": "<disease name>"
+  "answer": "<disease name>",
+  "reasoning": "<step-by-step reasoning>"
 }
 
 Keep the answer concise (e.g. "alzheimer's disease", "thyroid dyshormonogenesis").
@@ -56,10 +56,10 @@ Keep the answer concise (e.g. "alzheimer's disease", "thyroid dyshormonogenesis"
 _RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "reasoning": {"type": "string"},
         "answer":    {"type": "string"},
+        "reasoning": {"type": "string"},
     },
-    "required": ["reasoning", "answer"],
+    "required": ["answer", "reasoning"],
 }
 
 def build_user_message(question: str, ref_seq: str, var_seq: str,
@@ -86,13 +86,17 @@ def build_user_message(question: str, ref_seq: str, var_seq: str,
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_answer(text: str) -> str:
-    # Primary: parse JSON response from structured output mode
+    # Primary: parse complete JSON
     try:
         data = json.loads(text)
         return data.get("answer", "").strip()
     except (json.JSONDecodeError, AttributeError):
         pass
-    # Fallback: scan for Answer: pattern (plain-text responses)
+    # Fallback 1: extract "answer" field from truncated JSON via regex
+    m = re.search(r'"answer"\s*:\s*"([^"]+)"', text)
+    if m:
+        return m.group(1).strip()
+    # Fallback 2: plain-text Answer: pattern
     m = re.search(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text)
     return m.group(1).strip() if m else ""
 
@@ -126,8 +130,8 @@ def parse_args():
                    help="Gemini model ID (default: gemini-2.5-flash)")
     p.add_argument("--dna_truncate", type=int, default=500,
                    help="Max bp per DNA sequence sent to the model (default: 500)")
-    p.add_argument("--max_tokens",   type=int, default=1024,
-                   help="Max output tokens per request (default: 1024)")
+    p.add_argument("--max_tokens",   type=int, default=2048,
+                   help="Max output tokens per request (default: 2048)")
     p.add_argument("--rpm_limit",    type=int, default=60,
                    help="Requests per minute limit to avoid rate errors (default: 60)")
     p.add_argument("--resume",  action="store_true",
