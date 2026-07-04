@@ -99,8 +99,7 @@ python testing/eval_biomedgpt.py \
     --dtype          "$DTYPE" \
     --dna_truncate   "$DNA_TRUNCATE" \
     --max_new_tokens "$MAX_NEW_TOKENS" \
-    $RESUME_FLAG \
-    $LIMIT_FLAG
+    $RESUME_FLAG $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="

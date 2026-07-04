@@ -86,8 +86,7 @@ python testing/eval_claude.py \
     --dna_truncate "$DNA_TRUNCATE" \
     --max_tokens   "$MAX_TOKENS" \
     --rpm_limit    "$RPM_LIMIT" \
-    $RESUME_FLAG \
-    $LIMIT_FLAG
+    $RESUME_FLAG $LIMIT_FLAG
 
 echo ""
 echo "=== Done. Results: ==="
