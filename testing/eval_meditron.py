@@ -86,21 +86,28 @@ def build_prompt(tokenizer, user_msg: str) -> str:
             f"### Question:\n{user_msg}\n\n"
             f"### Response:\n"
         )
-    return prompt + "Answer: "
+    return prompt
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────
 
 def extract_answer(text: str) -> str:
-    for part in text.split("</think>")[1:]:
-        if "Answer:" in part or "answer:" in part:
-            answer = re.split(r'[Aa]nswer:\s*', part, maxsplit=1)[-1]
-            answer = answer.split('\n')[0].strip()
-            if answer:
-                return answer
-    m = re.search(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text)
+    # Explicit Answer: tag (last occurrence, in case model repeats it)
+    matches = list(re.finditer(r'[Aa]nswer:\s*(.+?)(?:\n|$)', text))
+    if matches:
+        return matches[-1].group(1).strip()
+    # Prose: 'disease "X"' or "disease 'X'"
+    m = re.search(r'disease\s+["\x27]([^"\x27\n]+)["\x27]', text, re.I)
     if m:
         return m.group(1).strip()
+    # Prose: "cause/contributes to/results in/leads to [the [disease]] X."
+    m = re.search(
+        r'(?:cause[sd]?|contributes?\s+to|results?\s+in|leads?\s+to|associated\s+with)'
+        r'\s+(?:the\s+(?:disease\s+)?)?([a-z][^.\n]{3,80})(?:\.|$)',
+        text, re.I
+    )
+    if m:
+        return m.group(1).strip().rstrip('"\'')
     return ""
 
 def is_correct(pred: str, gt: str) -> bool:
@@ -222,7 +229,7 @@ def main():
                     pad_token_id=tokenizer.eos_token_id,
                 )
             new_ids = output_ids[0][inputs["input_ids"].shape[-1]:]
-            raw = tokenizer.decode(new_ids, skip_special_tokens=True)
+            raw = tokenizer.decode(new_ids, skip_special_tokens=True).strip()
         except Exception as e:
             print(f"  [idx={idx}] Inference error: {e}")
             raw = ""
