@@ -39,7 +39,10 @@ SEED=${SEED:-42}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
-STAGE1_CKPT=${STAGE1_CKPT:-hf://iit-patna-cse-ai/GenoMorph/stage1_sft/dna-sft-week8-ca-kegg-Qwen3-1.7B-epoch=03-val_loss_epoch=0.4292.ckpt}
+## Default: auto-detect the best local anon Stage 1 checkpoint (see below).
+## Override with STAGE1_CKPT=<local path> or STAGE1_CKPT=hf://org/repo/file.
+## The non-anon HF checkpoint is pulled ONLY when an hf:// URI is passed explicitly.
+STAGE1_CKPT=${STAGE1_CKPT:-}
 _S1_LOCAL_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft_anon
 
 if [ ! -f "$DNA_CACHE" ]; then
@@ -57,7 +60,9 @@ mkdir -p train/anon/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
 
-## If hf:// URI: download into local checkpoint dir, then always auto-detect best
+## Explicit hf:// override ONLY: download into local dir and use that exact file.
+## This branch is never reached by default — STAGE1_CKPT is empty unless the user
+## passes hf://..., so the non-anon HF checkpoint is never pulled implicitly.
 if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
     _HF_REPO=$(echo "$STAGE1_CKPT" | sed 's|hf://||' | cut -d'/' -f1-2)
     _HF_FILE=$(echo "$STAGE1_CKPT" | sed "s|hf://${_HF_REPO}/||")
@@ -65,28 +70,28 @@ if [[ "${STAGE1_CKPT:-}" == hf://* ]]; then
     _HF_LOCAL_SUBDIR="$_S1_LOCAL_DIR/${_HF_RUNNAME}-hf"
     echo "Downloading HF checkpoint into $_HF_LOCAL_SUBDIR: $STAGE1_CKPT"
     mkdir -p "$_HF_LOCAL_SUBDIR"
-    if ! HF_HUB_DISABLE_PROGRESS_BARS=1 python3 -c "
+    STAGE1_CKPT=$(HF_HUB_DISABLE_PROGRESS_BARS=1 python3 -c "
 from huggingface_hub import hf_hub_download
 import sys
 try:
     p = hf_hub_download('$_HF_REPO', '$_HF_FILE', local_dir='$_HF_LOCAL_SUBDIR')
-    print('Downloaded:', p)
+    print(p)
 except Exception as e:
-    print('WARNING: HF download error:', str(e))
+    sys.stderr.write('WARNING: HF download error: %s\n' % e)
     sys.exit(1)
-"; then
-        echo "WARNING: HF download failed — will use best existing local checkpoint"
-    fi
-    STAGE1_CKPT=""
+")
+    [ -n "$STAGE1_CKPT" ] && echo "Downloaded: $STAGE1_CKPT" \
+        || echo "WARNING: HF download failed — falling back to local auto-detect"
 fi
 
-## Auto-detect best checkpoint by val_loss_epoch (always runs for hf:// and empty)
+## Default path: auto-detect best LOCAL anon checkpoint by val_loss_epoch.
+## Excludes *-hf subdirs so a previously downloaded non-anon checkpoint is never used.
 if [ -z "${STAGE1_CKPT:-}" ]; then
     STAGE1_CKPT=$(find "$_S1_LOCAL_DIR" \
-        -name "*.ckpt" ! -name "last.ckpt" 2>/dev/null \
+        -name "*.ckpt" ! -name "last.ckpt" ! -path "*-hf/*" 2>/dev/null \
         | awk -F'val_loss_epoch=' 'NF>1{print $2, $0}' | sort -n | head -1 | cut -d' ' -f2-)
-    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected STAGE1_CKPT: $STAGE1_CKPT" \
-        || echo "WARNING: could not auto-detect STAGE1_CKPT from train_02_stage1_sft_anon"
+    [ -n "$STAGE1_CKPT" ] && echo "Auto-detected local STAGE1_CKPT: $STAGE1_CKPT" \
+        || echo "WARNING: could not auto-detect STAGE1_CKPT from $_S1_LOCAL_DIR"
 fi
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
