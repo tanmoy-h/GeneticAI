@@ -413,6 +413,10 @@ class DNALLMGRPOTrainer(Trainer):
 
         # Reference model
         self.beta = args.beta
+        # Max |ref - curr| per token fed into the k2 KL penalty. Bounds the
+        # quadratic penalty (and its gradient) so a collapsed token can't blow up
+        # the loss. 10 nats ≈ e^-10 prob ratio — far beyond any healthy update.
+        self.kl_delta_clip = getattr(args, "kl_delta_clip", 10.0)
         if self.beta == 0.0:
             # If beta is 0.0, the reference model is not needed
             self.ref_model = None
@@ -1657,7 +1661,10 @@ class DNALLMGRPOTrainer(Trainer):
             # k2 KL estimator: 0.5 * (ref - curr)^2 — biased but bounded by quadratic growth.
             # Replaces Schulman's k3 estimator (exp(δ) - δ - 1) which is unbiased but
             # explodes exponentially when ref >> curr (caused step-390 226B loss spike).
-            delta = ref_per_token_logps - per_token_logps
+            # Clamp δ so a single collapsed token (empty extraction / format break)
+            # cannot drive the quadratic penalty — and its gradient — unbounded.
+            delta = (ref_per_token_logps - per_token_logps).clamp(-self.kl_delta_clip,
+                                                                   self.kl_delta_clip)
             per_token_kl = 0.5 * delta * delta
             per_token_loss = per_token_loss + self.beta * per_token_kl
 
