@@ -1076,6 +1076,11 @@ def make_latent_usage_reward_func(
     Returns per-sample reward in [-0.5, +0.5].
     """
     def _latent_reward(completions, **kwargs):
+        # theta_low == 0 during LatentSp warmup — latent steps are disabled.
+        # Scoring ratio=0 against target_ratio > 0 would give a spurious +0.25
+        # reward and reinforce the no-latent behaviour before training even starts.
+        if latentSp_ctrl.theta_low <= 0.0:
+            return [0.0] * len(completions)
         rewards = []
         for comp in completions:
             # comp arrives as [{"role": "assistant", "content": "..."}]
