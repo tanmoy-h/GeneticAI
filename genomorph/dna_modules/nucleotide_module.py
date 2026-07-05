@@ -304,8 +304,7 @@ class NucleotideDNAModule(DNABaseModule):
     @staticmethod
     def soft_format_reward_func(completions, **kwargs) -> List[float]:
         """Reward function that checks if the completion has a specific format."""
-        # <think> is pre-filled in the prompt; require </think> then Answer: in completion
-        pattern = r"</think>\s*Answer:\s*\S"
+        pattern = r"<think>.*?</think>\s*Answer:\s*\S"
         responses = [completion[0]["content"] for completion in completions]
         matches = [re.search(pattern, r, re.DOTALL) for r in responses]
         return [0.1 if match else -0.1 for match in matches]
@@ -354,15 +353,16 @@ class NucleotideDNAModule(DNABaseModule):
         rewards = []
         for completion in completions:
             text = completion[0]["content"]
-            n = text.count("</think>")
-            rewards.append(0.1 if n == 1 else -0.1)
+            n_open  = text.count("<think>")
+            n_close = text.count("</think>")
+            rewards.append(0.1 if (n_open == 1 and n_close == 1) else -0.1)
         return rewards
 
     @staticmethod
     def _count_xml(text) -> float:
-        # <think> is pre-filled in the prompt so not present in the completion.
-        # Reward </think> and Answer: appearing correctly in the completion.
         count = 0.0
+        if text.count("<think>") == 1:
+            count += 0.125
         if text.count("\n</think>\n") == 1:
             count += 0.125
         after_think = text.split("</think>", 1)[1] if "</think>" in text else ""

@@ -136,10 +136,6 @@ def format_kegg_for_llm(example: Dict[str, Any], is_sft: bool) -> Dict[str, Any]
     
 
 def _truncate_after_assistant_start(text: str) -> str:
-    """
-    Keep everything up to and including '<|im_start|>assistant\n',
-    drop any assistant answer that follows. The model generates <think> itself.
-    """
     marker = "<|im_end|>\n<|im_start|>assistant\n"
     idx = text.find(marker)
     if idx != -1:
@@ -270,8 +266,6 @@ def qwen_dna_collate_fn(
             # fall back to eos if pad is unset
             pad_id = processor.tokenizer.eos_token_id
 
-        # composite marker to mirror _truncate_after_assistant_start
-        # We append <think>\n so the model is forced into thinking mode.
         composite = "<|im_end|>\n<|im_start|>assistant\n"
         comp_ids = processor.tokenizer.encode(composite, add_special_tokens=False)
         comp_t   = torch.tensor(comp_ids, device=device)

@@ -177,8 +177,11 @@ def find_step_content_spans(
     for i, m in enumerate(matches):
         step_num = int(m.group(1))
 
-        # Content starts right after the colon
+        # Content starts after the colon; skip the single space separator so
+        # "Step N:" stays visible in the token stream (not absorbed into the span).
         content_char_start = offset + m.end()
+        while content_char_start < think_end and text[content_char_start] in (' ', '\t'):
+            content_char_start += 1
 
         # Content ends at next step header or </think>
         if i + 1 < len(matches):
@@ -186,9 +189,10 @@ def find_step_content_spans(
         else:
             content_char_end = think_end   # char position of </think> in full text
 
-        # Trim trailing whitespace/newlines from content
+        # Trim only horizontal whitespace so the trailing \n before the next
+        # "Step N+1:" header is preserved in the token stream after <end-latent>.
         content_text = text[content_char_start:content_char_end]
-        stripped_len = len(content_text.rstrip())
+        stripped_len = len(content_text.rstrip(' \t'))
         content_char_end = content_char_start + stripped_len
 
         if content_char_end <= content_char_start:
