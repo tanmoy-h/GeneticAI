@@ -540,8 +540,6 @@ def main():
             p.join()
 
     # ── Ranked table ──────────────────────────────────────────────────────────
-    all_results.sort(key=lambda x: x[3], reverse=True)
-
     def _f1_from_details(details):
         from sklearn.metrics import f1_score as sk_f1, precision_score, recall_score
         if not details:
@@ -557,10 +555,19 @@ def main():
         f1_w     = float(sk_f1(          y_true, y_pred, labels=labels, average="weighted", zero_division=0))
         return prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_w
 
+    # Rank by macro-F1 (primary), accuracy (tiebreak). Macro-F1 weights every
+    # disease class equally, so a checkpoint that only nails the common classes
+    # (parkinson's, alzheimer's) can't win on frequency alone.
+    _f1_macro = [_f1_from_details(r[5])[2] for r in all_results]
+    _order = sorted(range(len(all_results)),
+                    key=lambda i: (_f1_macro[i], all_results[i][3]),
+                    reverse=True)
+    all_results = [all_results[i] for i in _order]
+
     sep = "=" * 70
     gpu_str = ",".join(str(g) for g in active_gpus)
     print(f"\n{sep}")
-    print(f"  STAGE 1.51 CHECKPOINT RANKING{s_tag}  "
+    print(f"  STAGE 1.51 CHECKPOINT RANKING{s_tag}  (ranked by macro-F1)  "
           f"(n={n}, seed={args.seed}, gpu={gpu_str})")
     print(sep)
     print(f"  {'Rank':<5} {'Accuracy':>10}  {'F1-mac':>8}  {'F1-wt':>8}  {'Correct':>9}  Checkpoint")
