@@ -77,7 +77,11 @@ def build_prompt(tokenizer, user_msg: str) -> str:
             messages, tokenize=False, add_generation_prompt=True
         )
     except Exception:
-        return f"### System:\n{SYSTEM_PROMPT}\n\n### User:\n{user_msg}\n\n### Assistant:\n"
+        # BioMedGPT-LM-7B is fine-tuned from Llama-2-7B-Chat but its tokenizer_config.json
+        # defines no chat_template, so apply_chat_template always raises here. Fall back to
+        # Llama-2-Chat's actual prompt format (the one it was fine-tuned on), not a generic
+        # Alpaca-style ### template the model never saw during training.
+        return f"<s>[INST] <<SYS>>\n{SYSTEM_PROMPT}\n<</SYS>>\n\n{user_msg} [/INST]"
 
 
 # ── Extraction ────────────────────────────────────────────────────────────────
