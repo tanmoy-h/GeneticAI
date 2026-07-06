@@ -23,6 +23,7 @@ Usage — 2 GPUs, 100 samples:
 import os
 import re
 import sys
+import csv
 import glob
 import json
 import random
@@ -282,11 +283,11 @@ def evaluate_checkpoint(
     max_new_tokens: int = 400,
     gpu_tag:        str = "",
     print_samples:  int = 1,
-) -> Tuple[int, int, List[Tuple[str, str, bool]]]:
+) -> Tuple[int, int, List[Tuple[str, str, bool, str, str]]]:
     """
     Load ckpt_path (+ its gate) into model, run greedy generation on sample_indices,
     extract and score predicted answers.
-    Returns (n_correct, n_total, [(pred, gt, correct), ...]).
+    Returns (n_correct, n_total, [(pred, gt, correct, raw_generation, prompt), ...]).
     """
     load_stage151_weights(model, ckpt_path, device)
     model.eval()
@@ -302,7 +303,7 @@ def evaluate_checkpoint(
 
     think_tag = "<think>\n"
     n_correct = 0
-    details: List[Tuple[str, str, bool]] = []
+    details: List[Tuple[str, str, bool, str, str]] = []
     prefix    = f"[{gpu_tag}] " if gpu_tag else ""
 
     for sample_num, idx in enumerate(sample_indices, 1):
@@ -344,12 +345,14 @@ def evaluate_checkpoint(
                 )
         except KeyError as e:
             print(f"  {prefix}[skip] DNA cache miss sample={idx}: {e}", flush=True)
-            details.append(("", gt_answer, False))
+            details.append(("", gt_answer, False, "", prompt_text))
             continue
 
         # inputs_embeds generate returns only new tokens (no input prefix in out_ids)
-        generated  = tokenizer.decode(out_ids[0], skip_special_tokens=False)
-        # Strip everything from the second </think> onward (loop artifact)
+        raw_generation = tokenizer.decode(out_ids[0], skip_special_tokens=False)
+        # Strip everything from the second </think> onward (loop artifact) — only
+        # for extraction; raw_generation keeps the untruncated text for the CSV.
+        generated = raw_generation
         _tc = "</think>"
         _first = generated.find(_tc)
         if _first != -1:
@@ -361,7 +364,7 @@ def evaluate_checkpoint(
         correct    = is_correct(pred, gt_answer)
         if correct:
             n_correct += 1
-        details.append((pred, gt_answer, correct))
+        details.append((pred, gt_answer, correct, raw_generation, prompt_text))
 
         mark = "✓" if correct else "✗"
         print(f"  {prefix}{mark} [{sample_num}/{len(sample_indices)}] "
@@ -544,8 +547,8 @@ def main():
         from sklearn.metrics import f1_score as sk_f1, precision_score, recall_score
         if not details:
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-        y_true = [gt for _, gt, _ in details]
-        y_pred = [gt if ok else pred for pred, gt, ok in details]
+        y_true = [gt for _, gt, _, _, _ in details]
+        y_pred = [gt if ok else pred for pred, gt, ok, _, _ in details]
         labels = sorted(set(y_true))
         prec_mac = float(precision_score(y_true, y_pred, labels=labels, average="macro",    zero_division=0))
         rec_mac  = float(recall_score(   y_true, y_pred, labels=labels, average="macro",    zero_division=0))
@@ -632,6 +635,29 @@ def main():
             json.dump(out, f, indent=2)
         print(f"[eval] Results written to: {args.results_json}")
 
+    # ── Write raw generations CSV ─────────────────────────────────────────────
+    if args.raw_csv:
+        os.makedirs(os.path.dirname(os.path.abspath(args.raw_csv)), exist_ok=True)
+        with open(args.raw_csv, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "rank", "checkpoint", "sample_idx", "answer_gt", "answer_pred",
+                "correct", "prompt", "raw_generation",
+            ])
+            writer.writeheader()
+            for rank, (label, _, _, _, _, det) in enumerate(all_results, 1):
+                for sample_idx, (pred, gt, correct, raw_gen, prompt) in zip(sample_indices, det):
+                    writer.writerow({
+                        "rank":           rank,
+                        "checkpoint":     label,
+                        "sample_idx":     sample_idx,
+                        "answer_gt":      gt,
+                        "answer_pred":    pred,
+                        "correct":        int(correct),
+                        "prompt":         prompt,
+                        "raw_generation": raw_gen,
+                    })
+        print(f"[eval] Raw generations written to: {args.raw_csv}")
+
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -667,6 +693,9 @@ def parse_args():
                    help="Print full generation text for first N samples per checkpoint (default: 1)")
     p.add_argument("--results_json",          default=None,
                    help="Path to write ranked results as JSON (includes command + timestamp)")
+    p.add_argument("--raw_csv",               default=None,
+                   help="Path to write one row per (checkpoint, sample) with the full "
+                        "raw generation, prompt, prediction, and correctness")
     return p.parse_args()
 
 

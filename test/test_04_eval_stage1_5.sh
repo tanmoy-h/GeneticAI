@@ -61,8 +61,10 @@ SEED=${SEED:-42}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 VERBOSE=${VERBOSE:-0}  # set to 1 to print per-sample pred/gt output
 
-## Results JSON path — auto-named by timestamp if not overridden
-RESULTS_JSON=${RESULTS_JSON:-test/logs/test_04_eval_stage1_5_results_$(date +%Y%m%d_%H%M%S).json}
+## Results JSON / raw-generation CSV paths — auto-named by timestamp if not overridden
+_TS=$(date +%Y%m%d_%H%M%S)
+RESULTS_JSON=${RESULTS_JSON:-test/logs/test_04_eval_stage1_5_results_${_TS}.json}
+RAW_CSV=${RAW_CSV:-test/logs/test_04_eval_stage1_5_raw_${_TS}.csv}
 ## ─────────────────────────────────────────────────────────────────────────────
 
 module load MLDL/miniconda3 2>/dev/null || true
@@ -100,6 +102,7 @@ echo "Steps (--s):   ${S:-<all>}"
 echo "N samples:     $N_SAMPLES"
 echo "Seed:          $SEED"
 echo "Results JSON:  $RESULTS_JSON"
+echo "Raw CSV:       $RAW_CSV"
 nvidia-smi
 
 ## Build dataset arg
@@ -136,3 +139,4 @@ stdbuf -oL -eL python eval_stage1_5_checkpoints.py \
     --seed                   $SEED \
     --cache_dir              "$CACHE_DIR" \
     --results_json           "$RESULTS_JSON" \
+    --raw_csv                "$RAW_CSV" \
