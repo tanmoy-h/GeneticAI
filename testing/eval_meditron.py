@@ -204,6 +204,7 @@ def main():
     n_correct = 0
     n_total   = 0
     per_class: Dict[str, Dict] = {}
+    elapsed_times: List[float] = []
 
     for idx, row in enumerate(records):
         if idx in done:
@@ -264,6 +265,7 @@ def main():
         out_f.flush()
 
         elapsed = time.time() - t0
+        elapsed_times.append(elapsed)
         print(f"  [{idx+1:3d}/{len(records)}] gt={gt!r:30s}  pred={pred!r:30s}  "
               f"{'✓' if correct else '✗'}  ({elapsed:.1f}s)")
 
@@ -290,6 +292,9 @@ def main():
         "macro_recall":    round(macro_recall, 4),
         "macro_f1":        round(macro_f1,     4),
         "dna_truncate_bp": args.dna_truncate,
+        "n_timed":         len(elapsed_times),
+        "total_time_sec":  round(sum(elapsed_times), 1) if elapsed_times else 0.0,
+        "avg_time_sec":    round(sum(elapsed_times) / len(elapsed_times), 2) if elapsed_times else 0.0,
         "per_class": {
             cls: {
                 "tp": s["tp"], "fp": s["fp"], "fn": s["fn"],
@@ -307,6 +312,9 @@ def main():
     print(f"  Splits     : {args.splits}  ({n_total} records)")
     print(f"  Accuracy   : {accuracy:.1%}  ({n_correct}/{n_total})")
     print(f"  Macro P/R/F1: {macro_prec:.3f} / {macro_recall:.3f} / {macro_f1:.3f}")
+    if elapsed_times:
+        print(f"  Avg time/rec: {metrics['avg_time_sec']:.2f}s  "
+              f"(total {metrics['total_time_sec']:.1f}s over {metrics['n_timed']} records)")
     print(f"  Results CSV : {out_path}")
     print(f"  Metrics JSON: {metrics_path}")
 
