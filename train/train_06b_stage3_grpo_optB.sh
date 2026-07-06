@@ -43,15 +43,37 @@ STAGE1_CKPT=${STAGE1_CKPT:-}
 ## Gate/injector from Stage 1.5.1
 GATE_CKPT_DIR=${GATE_CKPT_DIR:-}
 
-## Use Stage 1.51 checkpoint recorded by training (written by train_04_stage1_51.sh)
+## Pick Stage 1.51 starting checkpoint.
+## Priority: (1) explicit STAGE1_CKPT, (2) best-ACCURACY checkpoint from the latest
+## test_04b eval results JSON, (3) fallback to stage151_ckpt.txt (best val_loss).
+_S151_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51
+_PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    _TRAIN_CKPT_FILE=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/stage151_ckpt.txt
+    _RESULTS_JSON=$(find "$_PROJECT_DIR/test/logs" \
+        -name "test_04b_eval_stage1_51_results_*.json" 2>/dev/null | sort -V | tail -1)
+    if [ -n "$_RESULTS_JSON" ]; then
+        STAGE1_CKPT=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$_RESULTS_JSON'))
+    print(d['best']['full_path'])
+except Exception:
+    sys.exit(1)
+" 2>/dev/null)
+        [ -n "$STAGE1_CKPT" ] && echo "STAGE1_CKPT (best accuracy from eval): $STAGE1_CKPT" \
+            || echo "WARNING: could not parse best checkpoint from $_RESULTS_JSON"
+    fi
+fi
+
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    _TRAIN_CKPT_FILE="$_S151_DIR/stage151_ckpt.txt"
     if [ -f "$_TRAIN_CKPT_FILE" ]; then
         STAGE1_CKPT=$(cat "$_TRAIN_CKPT_FILE")
-        echo "STAGE1_CKPT (from training): $STAGE1_CKPT"
+        echo "STAGE1_CKPT (fallback, best val_loss): $STAGE1_CKPT"
     else
-        echo "ERROR: STAGE1_CKPT not set and $_TRAIN_CKPT_FILE not found."
-        echo "       Run train_04_stage1_51.sh first, or set STAGE1_CKPT=<path> explicitly."
+        echo "ERROR: STAGE1_CKPT not set, no eval JSON, and $_TRAIN_CKPT_FILE not found."
+        echo "       Run train_04_stage1_51.sh (+ test_04b_eval_stage1_51.sh), or set STAGE1_CKPT=<path>."
         exit 1
     fi
 fi
@@ -162,7 +184,7 @@ args=(
     --beta                   0.05
     --epsilon                0.1
     --max_grad_norm          0.1
-    --reward_funcs           xmlcount soft_format correctness completion_quality reasoning_quality ot_distance latent_usage
+    --reward_funcs           xmlcount soft_format single_think_close correctness completion_quality reasoning_quality latent_format ot_distance latent_usage
     --manifold_weight        0.01
     --max_clip_loss_weight   0.0
 
