@@ -226,6 +226,8 @@ def main():
                     **inputs,
                     max_new_tokens=args.max_new_tokens,
                     do_sample=False,
+                    repetition_penalty=1.3,
+                    no_repeat_ngram_size=4,
                     pad_token_id=tokenizer.eos_token_id,
                 )
             new_ids = output_ids[0][inputs["input_ids"].shape[-1]:]
