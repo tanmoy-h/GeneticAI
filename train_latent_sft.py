@@ -235,6 +235,42 @@ def compute_step_entropies(
 
 # ── Latent marker injection ───────────────────────────────────────────────────
 
+def real_content_end(ids: List[int], pad_id: int) -> int:
+    """
+    Index one past the last real (non-padding) token in a right-padded sequence.
+
+    pad_token_id == eos_token_id == <|im_end|> (151645) in this project, so a
+    trailing run of pad_id is padding EXCEPT its first element, which is the
+    answer's genuine <|im_end|> terminator (`Answer: X<|im_end|>`). Masking by
+    `tok == pad_id` therefore also masks that terminator, so the model never
+    learns to stop after the answer. Find the last token that isn't pad_id; the
+    real terminator sits exactly one position after it and must be KEPT in loss.
+    """
+    last_non_pad = -1
+    for i in range(len(ids) - 1, -1, -1):
+        if ids[i] != pad_id:
+            last_non_pad = i
+            break
+    if last_non_pad == -1:
+        return 0  # all padding (should not happen for a real sample)
+    return min(last_non_pad + 2, len(ids))
+
+
+def real_attention_mask(batch_ids: torch.Tensor, pad_id: int) -> torch.Tensor:
+    """
+    [B, T] attention mask that keeps every real token INCLUDING the answer's
+    <|im_end|> terminator and masks only trailing padding. Vectorized counterpart
+    of real_content_end: since pad_id == <|im_end|>, a plain `batch_ids != pad_id`
+    mask wrongly drops the terminator.
+    """
+    B, T        = batch_ids.shape
+    idx         = torch.arange(T, device=batch_ids.device).unsqueeze(0)   # [1, T]
+    non_pad     = (batch_ids != pad_id).long()                            # [B, T]
+    last_real   = (non_pad * (idx + 1)).max(dim=1).values                 # [B] = last_non_pad_idx + 1
+    content_end = (last_real + 1).clamp(max=T).unsqueeze(1)               # keep the terminator
+    return (idx < content_end).long()
+
+
 def inject_latent_markers(
     input_ids:       List[int],
     step_spans:      List[Tuple[int, int, int]],
@@ -311,12 +347,15 @@ def inject_latent_markers(
                 labels[abs_j]       = rep_tok
                 loss_weights[abs_j] = BOUNDARY_LOSS_SCALE
 
-    # Mask any remaining positions that are still prompt (before think block)
-    # Already handled above; also mask pad tokens
-    for t, tok in enumerate(ids):
-        if tok == pad_id:
-            labels[t]       = -100
-            loss_weights[t] = 0.0
+    # Mask trailing padding ONLY — by position, not by `tok == pad_id`, because
+    # pad_id == <|im_end|> so an id comparison also masks the answer terminator
+    # and the model never learns to stop. Keep everything up to the real
+    # <|im_end|> (computed from the unmodified input; latent replacement never
+    # touches the tail), mask what follows.
+    content_end = real_content_end(list(input_ids), pad_id)
+    for t in range(content_end, T):
+        labels[t]       = -100
+        loss_weights[t] = 0.0
 
     new_ids      = torch.tensor(ids,          dtype=torch.long)
     labels_t     = torch.tensor(labels,       dtype=torch.long)
@@ -650,7 +689,7 @@ def compute_epoch_entropies(
         dna_tok   = {k: v.to(device) for k, v in dna_tok.items()}
         out       = model(
             input_ids      = batch_ids,
-            attention_mask = (batch_ids != pad_id).long(),
+            attention_mask = real_attention_mask(batch_ids, pad_id),
             dna_tokenized  = dna_tok,
             batch_idx_map  = idx_map,
         )
@@ -716,7 +755,7 @@ def process_batch(
                          if dna_tokenized is not None else None)
             out       = model(
                 input_ids      = batch_ids.to(device),
-                attention_mask = (batch_ids != pad_id).long().to(device),
+                attention_mask = real_attention_mask(batch_ids, pad_id).to(device),
                 dna_tokenized  = dna_tok_d,
                 batch_idx_map  = batch_idx_map,
             )
@@ -738,10 +777,11 @@ def process_batch(
             wgt = torch.ones(batch_ids[b].shape[0], dtype=torch.float)
             lbl[:pe] = -100
             wgt[:pe] = 0.0
-            # Mask pad tokens
-            for t, tok in enumerate(batch_ids[b].tolist()):
-                if tok == pad_id:
-                    lbl[t] = -100; wgt[t] = 0.0
+            # Mask trailing padding by position (pad_id == <|im_end|>, so an id
+            # comparison would also mask the answer terminator — keep it).
+            _ce = real_content_end(ids_b, pad_id)
+            lbl[_ce:] = -100
+            wgt[_ce:] = 0.0
             new_ids_list.append(batch_ids[b])
             labels_list.append(lbl)
             weights_list.append(wgt)
@@ -1015,7 +1055,7 @@ def train(args):
                     # Forward pass with DNA embeddings injected at <|dna_pad|> positions
                     out  = model(
                         input_ids      = new_ids,
-                        attention_mask = (new_ids != pad_id).long(),
+                        attention_mask = real_attention_mask(new_ids, pad_id),
                         dna_tokenized  = dna_tok_d,
                         batch_idx_map  = idx_map,
                     )
@@ -1103,7 +1143,7 @@ def train(args):
                     )
                     out_v = model(
                         input_ids      = new_ids_v,
-                        attention_mask = (new_ids_v != pad_id).long(),
+                        attention_mask = real_attention_mask(new_ids_v, pad_id),
                         dna_tokenized  = val_dna_tok_d,
                         batch_idx_map  = val_idx_map,
                     )
