@@ -371,6 +371,31 @@ class NucleotideDNAModule(DNABaseModule):
         return count
 
     @staticmethod
+    def format_reward_func(completions, **kwargs) -> List[float]:
+        """Unified structural-format reward — replaces xmlcount + soft_format +
+        single_think_close, which each rewarded the same <think>…</think>…Answer:
+        structure. Every structural property is scored exactly once here.
+
+        Additive (max +0.5; floor -0.2 when completely malformed):
+          +0.15  exactly one <think>
+          +0.15  exactly one newline-wrapped </think>  (\\n</think>\\n)
+          +0.20  non-empty 'Answer:' immediately after </think>
+        """
+        rewards = []
+        for comp in completions:
+            text = comp[0]["content"]
+            s = 0.0
+            if text.count("<think>") == 1:
+                s += 0.15
+            if text.count("\n</think>\n") == 1:
+                s += 0.15
+            after = text.split("</think>", 1)[1].strip() if "</think>" in text else ""
+            if after.lower().startswith("answer:") and len(after) > len("answer:"):
+                s += 0.20
+            rewards.append(s if s > 0.0 else -0.20)
+        return rewards
+
+    @staticmethod
     def format_reward_rec(completions: List[Dict[str, Any]], **kwargs) -> List[float]:
         """
         Check if the Qwen model output matches a specific format.

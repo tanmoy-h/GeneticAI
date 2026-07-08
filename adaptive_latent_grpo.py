@@ -249,13 +249,14 @@ class GRPOScriptArguments(ScriptArguments):
 
 
 reward_funcs_registry = {
-    "xmlcount":           NucleotideDNAModule.xmlcount_reward_func,
-    "soft_format":        NucleotideDNAModule.soft_format_reward_func,
+    "format":             NucleotideDNAModule.format_reward_func,   # merges xmlcount+soft_format+single_think_close
     "correctness":        NucleotideDNAModule.correctness_reward_func,
     "completion_quality": NucleotideDNAModule.completion_quality_reward_func,
     "reasoning_quality":  NucleotideDNAModule.reasoning_quality_reward_func,
     "latent_format":      NucleotideDNAModule.latent_format_reward_func,
-    # Legacy (kept for checkpoint compat)
+    # Legacy (kept for checkpoint compat / older reward_funcs lists)
+    "xmlcount":           NucleotideDNAModule.xmlcount_reward_func,
+    "soft_format":        NucleotideDNAModule.soft_format_reward_func,
     "strict_format":      NucleotideDNAModule.strict_format_reward_func,
     "concise":            NucleotideDNAModule.concise_reward_func,
     "diversity":          NucleotideDNAModule.diversity_reward_func,
