@@ -546,6 +546,39 @@ def _make_dual_mode_generate_w9(
             # LatentSp fires only when entire step content is being replaced, not per-token
             if _step_state == "content_latent":
                 if is_structural or _step_latent_count >= _MAX_LATENT_PER_STEP:
+                    # Close any OPEN latent block before leaving latent mode.  If
+                    # <start-latent> was emitted but the block is exiting early
+                    # (is_structural fired before reaching _MAX_LATENT_PER_STEP —
+                    # typically because the untrained post-<start-latent> argmax is
+                    # <|im_end|>), <end-latent> was never emitted.  Force-emit it so
+                    # every block is matched, mirroring SFT's [start][latent]*k[end].
+                    # Without this the model produces an unclosed "<start-latent>
+                    # <|im_end|>" and truncates before </think>/Answer.
+                    if 1 <= _step_latent_count < _MAX_LATENT_PER_STEP:
+                        _end_tok  = torch.full((B, 1), latent_end_id,
+                                               dtype=torch.long, device=device)
+                        _e_emb    = embed_layer(_end_tok).to(inputs_embeds)
+                        if factor > 0 and u_dna is not None:
+                            _er = u_dna.detach().unsqueeze(1).to(_e_emb)
+                            with torch.no_grad():
+                                _eg, _ = thinking_gate(_e_emb, _er)
+                            _e_emb = (1.0 - factor) * _e_emb + factor * _eg
+                        _e_ext    = torch.ones(B, 1, dtype=curr_mask.dtype, device=device)
+                        curr_mask = torch.cat([curr_mask, _e_ext], dim=1)
+                        with torch.no_grad():
+                            _e_out = self.text_model(
+                                inputs_embeds        = _e_emb,
+                                attention_mask       = curr_mask,
+                                past_key_values      = past_kv,
+                                use_cache            = True,
+                                output_hidden_states = True,
+                            )
+                        past_kv = _e_out.past_key_values
+                        h_last  = _e_out.hidden_states[-1]
+                        logits  = self.text_model.lm_head(h_last)
+                        generated.append(_end_tok)
+                        gen_meta.append({"step": step, "is_latent": True,
+                                         "entropy": 0.0, "dna_injected": False})
                     _step_state        = "normal"
                     _step_latent_count = 0
                     is_latent          = False
@@ -641,6 +674,16 @@ def _make_dual_mode_generate_w9(
                         if 0 <= _lid < scaled.size(-1):
                             scaled[:, _lid] = float("-inf")
 
+                    # Suppress EOS/<|im_end|> until </think> is emitted — the model
+                    # must produce reasoning + Answer before it can terminate.  The
+                    # untrained post-<start-latent> distribution otherwise favours
+                    # <|im_end|> mid-think and truncates the completion.  Masked
+                    # BEFORE top-k/top-p so at least one non-EOS token always survives.
+                    if _think_close_count == 0:
+                        for _eid in eos_ids:
+                            if 0 <= _eid < scaled.size(-1):
+                                scaled[:, _eid] = float("-inf")
+
                     # Once the Answer line is started, block further "Answer:" tokens
                     # so the model is forced to end with EOS / <|im_end|> instead of looping
                     if _answer_started:
@@ -673,17 +716,19 @@ def _make_dual_mode_generate_w9(
                                         banned_tok = prev_ng[b, i + ng_len].item()
                                         scaled[b, banned_tok] = float("-inf")
 
-                    # Top-k filtering (always preserve EOS so generation can terminate)
+                    # Top-k filtering (preserve EOS so generation can terminate —
+                    # but only AFTER </think>; before it, EOS stays suppressed above)
                     if top_k_v > 0:
                         k = min(top_k_v, scaled.size(-1))
                         kth = torch.topk(scaled, k, dim=-1).values[:, -1, None]
                         scaled = scaled.masked_fill(scaled < kth, float("-inf"))
-                        for _eid in eos_ids:
-                            if _eid < scaled.size(-1):
-                                eos_masked = scaled[:, _eid].isinf()
-                                scaled[:, _eid] = torch.where(
-                                    eos_masked, kth.squeeze(-1), scaled[:, _eid]
-                                )
+                        if _think_close_count > 0:
+                            for _eid in eos_ids:
+                                if _eid < scaled.size(-1):
+                                    eos_masked = scaled[:, _eid].isinf()
+                                    scaled[:, _eid] = torch.where(
+                                        eos_masked, kth.squeeze(-1), scaled[:, _eid]
+                                    )
 
                     # Top-p (nucleus) filtering
                     if top_p_v < 1.0:
@@ -706,6 +751,11 @@ def _make_dual_mode_generate_w9(
                         for _tid in _answer_ids:
                             if 0 <= _tid < _greedy_logits.size(-1):
                                 _greedy_logits[:, _tid] = float("-inf")
+                    # Suppress EOS until </think> emitted (see sampling branch).
+                    if _think_close_count == 0:
+                        for _eid in eos_ids:
+                            if 0 <= _eid < _greedy_logits.size(-1):
+                                _greedy_logits[:, _eid] = float("-inf")
                     next_token = torch.argmax(_greedy_logits, dim=-1, keepdim=True)
 
                 next_input        = embed_layer(next_token).to(inputs_embeds)  # [B, 1, H]
@@ -1081,23 +1131,44 @@ def make_latent_usage_reward_func(
         # reward and reinforce the no-latent behaviour before training even starts.
         if latentSp_ctrl.theta_low <= 0.0:
             return [0.0] * len(completions)
+
+        import re as _re_lat
+
+        def _is_valid(t: str) -> bool:
+            # Only reward latent usage on a well-formed completion: exactly one
+            # matched <think>…</think> and a non-empty Answer:.  A truncated block
+            # ("<start-latent><|im_end|>") would otherwise earn latent reward and
+            # reinforce the degenerate mode, driving a death spiral once correctness
+            # collapses.  Return neutral (0.0) for malformed completions.
+            if t.count("<think>") != 1 or t.count("</think>") != 1:
+                return False
+            _after = t.split("</think>", 1)[1]
+            return _re_lat.search(r'[Aa]nswer:\s*\S', _after) is not None
+
         rewards = []
         for comp in completions:
             # comp arrives as [{"role": "assistant", "content": "..."}]
+            text = None
             if isinstance(comp, list) and comp and isinstance(comp[0], dict):
                 text = comp[0].get("content", "")
                 n_latent = text.count(_LATENT_START_TOKEN)
                 n_total  = max(len(text.split()), 1)
             elif isinstance(comp, str):
+                text = comp
                 n_latent = comp.count(_LATENT_START_TOKEN)
                 n_total  = max(len(comp.split()), 1)
             elif isinstance(comp, list):
-                # list of token IDs
+                # list of token IDs — no text form available for the validity gate
                 n_latent = sum(1 for t in comp if t == latent_start_id)
                 n_total  = max(len(comp), 1)
             else:
                 n_latent = 0
                 n_total  = 1
+
+            # Reward-hacking guard: latent density only counts on a valid completion.
+            if text is not None and not _is_valid(text):
+                rewards.append(0.0)
+                continue
 
             ratio  = n_latent / n_total
             reward = 0.5 * (1.0 - abs(ratio - target_ratio) / bandwidth)
