@@ -658,6 +658,20 @@ def main():
                     })
         print(f"[eval] Raw generations written to: {args.raw_csv}")
 
+    # ── Write best-checkpoint pointer ─────────────────────────────────────────
+    # Deterministic hand-off to Stage 3: a stable file in the checkpoint dir
+    # holding the best (rank-1) accuracy checkpoint path. Stage 3 reads this
+    # directly instead of globbing/parsing timestamped result JSONs. Distinct
+    # from stage151_ckpt.txt, which the trainer writes as the val_loss best.
+    if all_results:
+        pointer = os.path.join(args.ckpt_dir, "stage151_eval_best_ckpt.txt")
+        try:
+            with open(pointer, "w") as f:
+                f.write(all_results[0][4] + "\n")
+            print(f"[eval] Best-checkpoint pointer written to: {pointer}")
+        except OSError as e:
+            print(f"[eval] WARNING: could not write pointer {pointer}: {e}")
+
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 

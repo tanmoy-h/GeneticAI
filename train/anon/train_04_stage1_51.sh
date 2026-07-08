@@ -37,7 +37,13 @@ STAGE15_CKPT=${STAGE15_CKPT:-}
 _S15_CKPT_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_cached_anon
 _PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
-## Auto-detect best Stage 1.5 checkpoint from latest eval results JSON
+## Prefer the deterministic pointer written by eval_stage1_5_checkpoints.py
+if [ -z "${STAGE15_CKPT:-}" ] && [ -f "$_S15_CKPT_DIR/stage15_best_ckpt.txt" ]; then
+    STAGE15_CKPT=$(cat "$_S15_CKPT_DIR/stage15_best_ckpt.txt")
+    echo "STAGE15_CKPT (from stage15_best_ckpt.txt): $STAGE15_CKPT"
+fi
+
+## Fallback: parse best from the latest eval results JSON
 if [ -z "${STAGE15_CKPT:-}" ]; then
     _RESULTS_JSON=$(find "$_PROJECT_DIR/test/anon/logs" \
         -not -path "*/.*/*" \

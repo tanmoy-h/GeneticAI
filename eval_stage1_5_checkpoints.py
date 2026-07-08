@@ -604,6 +604,20 @@ def main():
                     })
         print(f"[eval] Raw generations written to: {args.raw_csv}")
 
+    # ── Write best-checkpoint pointer ─────────────────────────────────────────
+    # Deterministic hand-off to Stage 1.51: a stable file in the checkpoint dir
+    # holding the best (rank-1) checkpoint path. Downstream reads this directly
+    # instead of globbing/parsing timestamped result JSONs (which can pick up a
+    # stale copy under .ipynb_checkpoints or an older run).
+    if all_results:
+        pointer = os.path.join(args.ckpt_dir, "stage15_best_ckpt.txt")
+        try:
+            with open(pointer, "w") as f:
+                f.write(all_results[0][4] + "\n")
+            print(f"[eval] Best-checkpoint pointer written to: {pointer}")
+        except OSError as e:
+            print(f"[eval] WARNING: could not write pointer {pointer}: {e}")
+
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 

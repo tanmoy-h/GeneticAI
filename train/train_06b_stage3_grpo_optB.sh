@@ -44,10 +44,17 @@ STAGE1_CKPT=${STAGE1_CKPT:-}
 GATE_CKPT_DIR=${GATE_CKPT_DIR:-}
 
 ## Pick Stage 1.51 starting checkpoint.
-## Priority: (1) explicit STAGE1_CKPT, (2) best-ACCURACY checkpoint from the latest
-## test_04b eval results JSON, (3) fallback to stage151_ckpt.txt (best val_loss).
+## Priority: (1) explicit STAGE1_CKPT, (2) deterministic pointer from the 1.51 eval,
+## (3) best-ACCURACY checkpoint from the latest test_04b eval JSON, (4) fallback to
+## stage151_ckpt.txt (best val_loss).
 _S151_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51
 _PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+## Prefer the deterministic pointer written by eval_stage1_51_checkpoints.py
+if [ -z "${STAGE1_CKPT:-}" ] && [ -f "$_S151_DIR/stage151_eval_best_ckpt.txt" ]; then
+    STAGE1_CKPT=$(cat "$_S151_DIR/stage151_eval_best_ckpt.txt")
+    echo "STAGE1_CKPT (from stage151_eval_best_ckpt.txt): $STAGE1_CKPT"
+fi
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     _RESULTS_JSON=$(find "$_PROJECT_DIR/test/logs" \
