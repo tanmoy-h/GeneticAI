@@ -545,40 +545,17 @@ def _make_dual_mode_generate_w9(
 
             # LatentSp fires only when entire step content is being replaced, not per-token
             if _step_state == "content_latent":
-                if is_structural or _step_latent_count >= _MAX_LATENT_PER_STEP:
-                    # Close any OPEN latent block before leaving latent mode.  If
-                    # <start-latent> was emitted but the block is exiting early
-                    # (is_structural fired before reaching _MAX_LATENT_PER_STEP —
-                    # typically because the untrained post-<start-latent> argmax is
-                    # <|im_end|>), <end-latent> was never emitted.  Force-emit it so
-                    # every block is matched, mirroring SFT's [start][latent]*k[end].
-                    # Without this the model produces an unclosed "<start-latent>
-                    # <|im_end|>" and truncates before </think>/Answer.
-                    if 1 <= _step_latent_count < _MAX_LATENT_PER_STEP:
-                        _end_tok  = torch.full((B, 1), latent_end_id,
-                                               dtype=torch.long, device=device)
-                        _e_emb    = embed_layer(_end_tok).to(inputs_embeds)
-                        if factor > 0 and u_dna is not None:
-                            _er = u_dna.detach().unsqueeze(1).to(_e_emb)
-                            with torch.no_grad():
-                                _eg, _ = thinking_gate(_e_emb, _er)
-                            _e_emb = (1.0 - factor) * _e_emb + factor * _eg
-                        _e_ext    = torch.ones(B, 1, dtype=curr_mask.dtype, device=device)
-                        curr_mask = torch.cat([curr_mask, _e_ext], dim=1)
-                        with torch.no_grad():
-                            _e_out = self.text_model(
-                                inputs_embeds        = _e_emb,
-                                attention_mask       = curr_mask,
-                                past_key_values      = past_kv,
-                                use_cache            = True,
-                                output_hidden_states = True,
-                            )
-                        past_kv = _e_out.past_key_values
-                        h_last  = _e_out.hidden_states[-1]
-                        logits  = self.text_model.lm_head(h_last)
-                        generated.append(_end_tok)
-                        gen_meta.append({"step": step, "is_latent": True,
-                                         "entropy": 0.0, "dna_injected": False})
+                # Emit the FULL fixed-length block once the latent decision is made:
+                #   <start-latent> <latent>*(MAX-2) <end-latent>
+                # Do NOT exit early on is_structural.  The post-<start-latent>
+                # distribution is untrained (SFT masks that transition), so its
+                # argmax is often <|im_end|> or an OOD token — is_structural would
+                # then abort the block at count==1, leaving an unclosed
+                # "<start-latent><|im_end|>" / "<start-latent>位於…" and no <latent>
+                # positions for DNA injection.  Running to _MAX_LATENT_PER_STEP
+                # guarantees the correct <start-latent><latent><end-latent> pattern
+                # with real (DNA-injected) <latent> content.
+                if _step_latent_count >= _MAX_LATENT_PER_STEP:
                     _step_state        = "normal"
                     _step_latent_count = 0
                     is_latent          = False
