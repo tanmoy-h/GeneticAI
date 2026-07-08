@@ -40,6 +40,7 @@ _PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ## Auto-detect best Stage 1.5 checkpoint from latest eval results JSON
 if [ -z "${STAGE15_CKPT:-}" ]; then
     _RESULTS_JSON=$(find "$_PROJECT_DIR/test/logs" \
+        -not -path "*/.*/*" \
         -name "test_04_eval_stage1_5_results_*.json" 2>/dev/null | sort -V | tail -1)
     if [ -n "$_RESULTS_JSON" ]; then
         STAGE15_CKPT=$(python3 -c "

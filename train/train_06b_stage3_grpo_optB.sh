@@ -51,6 +51,7 @@ _PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [ -z "${STAGE1_CKPT:-}" ]; then
     _RESULTS_JSON=$(find "$_PROJECT_DIR/test/logs" \
+        -not -path "*/.*/*" \
         -name "test_04b_eval_stage1_51_results_*.json" 2>/dev/null | sort -V | tail -1)
     if [ -n "$_RESULTS_JSON" ]; then
         STAGE1_CKPT=$(python3 -c "
