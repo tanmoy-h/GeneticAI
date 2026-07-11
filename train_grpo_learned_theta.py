@@ -364,6 +364,75 @@ class PreferLatestOnTieCallback(TrainerCallback):
                 )
 
 
+# ── Keep only the top-N checkpoints by eval metric ────────────────────────────
+
+class KeepBestNCheckpointsCallback(TrainerCallback):
+    """Retain only the top-N checkpoints ranked by the eval metric
+    (`metric_for_best_model`, e.g. `correctness` = 3.0 x accuracy on the val set);
+    delete the rest after each save. Runs on rank 0 only.
+
+    HF's own save_total_limit rotates by *recency* (keeping best-1 + most-recent),
+    which would delete a high-accuracy *old* checkpoint. This callback instead
+    ranks every saved checkpoint by its recorded eval score and keeps the best N.
+
+    Safety: never deletes the current-step checkpoint or best_model_checkpoint, and
+    never touches a checkpoint it has no eval score for (e.g. ones inherited from a
+    resumed run), so it can't nuke foreign/unscored folders. Requires HF rotation
+    to be disabled (do NOT pass --save_total_limit) so it owns pruning exclusively.
+    """
+
+    def __init__(self, metric_name: str, n: int = 3, greater_is_better: bool = True):
+        self.key     = f"eval_{metric_name}"
+        self.n       = max(1, int(n))
+        self.greater = greater_is_better
+        self.scores  = {}   # global_step -> eval metric value
+
+    @staticmethod
+    def _is_rank0() -> bool:
+        try:
+            import torch.distributed as dist
+            return (not dist.is_initialized()) or dist.get_rank() == 0
+        except Exception:
+            return True
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if metrics and metrics.get(self.key) is not None:
+            self.scores[state.global_step] = float(metrics[self.key])
+
+    def on_save(self, args, state, control, **kwargs):
+        if not self._is_rank0():
+            return
+        import re, shutil
+        existing = {}
+        for d in os.listdir(args.output_dir):
+            m = re.fullmatch(r"checkpoint-(\d+)", d)
+            p = os.path.join(args.output_dir, d)
+            if m and os.path.isdir(p):
+                existing[int(m.group(1))] = p
+
+        # rank checkpoints we have eval scores for; keep the best N
+        scored = sorted(
+            ((s, self.scores[s]) for s in existing if s in self.scores),
+            key=lambda x: x[1], reverse=self.greater,
+        )
+        keep = {s for s, _ in scored[: self.n]}
+        keep.add(state.global_step)                       # never drop the latest
+        if state.best_model_checkpoint:                   # never drop HF's best
+            m = re.search(r"checkpoint-(\d+)", state.best_model_checkpoint)
+            if m:
+                keep.add(int(m.group(1)))
+
+        for s, score in scored:
+            if s in keep:
+                continue
+            shutil.rmtree(existing[s], ignore_errors=True)
+            print(f"[KeepBestN] Removed checkpoint-{s} ({self.key}={score:.4f}) "
+                  f"— keeping top-{self.n}", flush=True)
+
+        kept = sorted(s for s in existing if s in keep or s not in self.scores)
+        print(f"[KeepBestN] Kept checkpoints (ranked by {self.key}): {kept}", flush=True)
+
+
 # ── Trainer with REINFORCE theta_loss ─────────────────────────────────────────
 
 class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
@@ -665,6 +734,11 @@ def main(script_args, training_args, model_args):
             ),
             PreferLatestOnTieCallback(
                 metric_name      = training_args.metric_for_best_model,
+                greater_is_better = training_args.greater_is_better,
+            ),
+            KeepBestNCheckpointsCallback(
+                metric_name      = training_args.metric_for_best_model,
+                n                = getattr(script_args, "keep_best_n", 3),
                 greater_is_better = training_args.greater_is_better,
             ),
         ],

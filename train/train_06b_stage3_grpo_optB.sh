@@ -207,7 +207,6 @@ args=(
     --eval_strategy          steps
     --eval_steps             $SAVE_STEPS
     --save_steps             $SAVE_STEPS
-    --save_total_limit       4
     --load_best_model_at_end True
     --metric_for_best_model  correctness
     --greater_is_better      True
