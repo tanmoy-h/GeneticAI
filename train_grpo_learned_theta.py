@@ -367,10 +367,13 @@ class PreferLatestOnTieCallback(TrainerCallback):
 # ── Keep only the top-N checkpoints by eval metric ────────────────────────────
 
 class KeepBestNCheckpointsCallback(TrainerCallback):
-    """Retain only the top-N checkpoints ranked by the eval metric
+    """Retain the top-N checkpoints ranked by the eval metric
     (`metric_for_best_model` = `correctness`, which the evaluate() override
     computes as val accuracy — fraction correct in [0,1], on a fixed 50-record
     slice with greedy decoding); delete the rest after each save. Rank 0 only.
+
+    Ties: checkpoints tied with the N-th at the cutoff score are ALL kept, so more
+    than N may survive (the 50-record eval has 2% granularity, so ties are common).
 
     HF's own save_total_limit rotates by *recency* (keeping best-1 + most-recent),
     which would delete a high-accuracy *old* checkpoint. This callback instead
@@ -411,12 +414,22 @@ class KeepBestNCheckpointsCallback(TrainerCallback):
             if m and os.path.isdir(p):
                 existing[int(m.group(1))] = p
 
-        # rank checkpoints we have eval scores for; keep the best N
+        # Rank checkpoints we have eval scores for (best first; tie-break toward the
+        # later checkpoint just for a stable print order).
         scored = sorted(
             ((s, self.scores[s]) for s in existing if s in self.scores),
-            key=lambda x: x[1], reverse=self.greater,
+            key=lambda x: (x[1] if self.greater else -x[1], x[0]),
+            reverse=True,
         )
-        keep = {s for s, _ in scored[: self.n]}
+        # Keep the best N, but KEEP ALL checkpoints tied with the N-th at the
+        # cutoff score — so an equal-accuracy tie never arbitrarily drops one
+        # (may retain more than N).
+        if len(scored) <= self.n:
+            keep = {s for s, _ in scored}
+        else:
+            cutoff = scored[self.n - 1][1]
+            keep = {s for s, v in scored
+                    if (v >= cutoff if self.greater else v <= cutoff)}
         keep.add(state.global_step)                       # never drop the latest
         if state.best_model_checkpoint:                   # never drop HF's best
             m = re.search(r"checkpoint-(\d+)", state.best_model_checkpoint)
@@ -428,7 +441,7 @@ class KeepBestNCheckpointsCallback(TrainerCallback):
                 continue
             shutil.rmtree(existing[s], ignore_errors=True)
             print(f"[KeepBestN] Removed checkpoint-{s} ({self.key}={score:.4f}) "
-                  f"— keeping top-{self.n}", flush=True)
+                  f"— keeping best-{self.n} (+ ties)", flush=True)
 
         kept = sorted(s for s in existing if s in keep or s not in self.scores)
         print(f"[KeepBestN] Kept checkpoints (ranked by {self.key}): {kept}", flush=True)
