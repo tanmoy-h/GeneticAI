@@ -752,7 +752,7 @@ def main(script_args, training_args, model_args):
             ),
             KeepBestNCheckpointsCallback(
                 metric_name      = training_args.metric_for_best_model,
-                n                = getattr(script_args, "keep_best_n", 3),
+                n                = getattr(script_args, "keep_best_n", 2),
                 greater_is_better = training_args.greater_is_better,
             ),
         ],
