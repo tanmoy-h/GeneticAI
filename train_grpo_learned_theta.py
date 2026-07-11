@@ -368,8 +368,9 @@ class PreferLatestOnTieCallback(TrainerCallback):
 
 class KeepBestNCheckpointsCallback(TrainerCallback):
     """Retain only the top-N checkpoints ranked by the eval metric
-    (`metric_for_best_model`, e.g. `correctness` = 3.0 x accuracy on the val set);
-    delete the rest after each save. Runs on rank 0 only.
+    (`metric_for_best_model` = `correctness`, which the evaluate() override
+    computes as val accuracy — fraction correct in [0,1], on a fixed 50-record
+    slice with greedy decoding); delete the rest after each save. Rank 0 only.
 
     HF's own save_total_limit rotates by *recency* (keeping best-1 + most-recent),
     which would delete a high-accuracy *old* checkpoint. This callback instead
