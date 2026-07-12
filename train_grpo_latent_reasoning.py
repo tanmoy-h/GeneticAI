@@ -427,6 +427,10 @@ def _make_dual_mode_generate_w9(
         _MAX_LATENT_PER_STEP = latentSp_ctrl.max_consecutive
         _at_step_boundary   = False             # True after emitting "Step N:" colon
         _LOOKAHEAD_K        = max(1, lookahead_k)
+        # Cap reasoning length: once "Step N:" reaches this, force conclusion so the
+        # model can't loop step-after-step to the token budget (SFT traces are ~12
+        # steps; EOS is masked until </think>, so an un-closing model runs on).
+        _MAX_REASONING_STEPS = 25
 
         # Stop on second </think>: first is legitimate end-of-reasoning,
         # second means a repetition loop — treat it as EOS.
@@ -451,6 +455,46 @@ def _make_dual_mode_generate_w9(
             # ── Step-level LatentSp decision with K-token lookahead ──────────────
             argmax_tok    = int(logits[:, -1, :].argmax(dim=-1)[0].item())
             is_structural = argmax_tok in _structural_ids
+
+            # ── Reasoning-length cap ──────────────────────────────────────────
+            # At a step boundary past _MAX_REASONING_STEPS with </think> not yet
+            # emitted, force "\n</think>\nAnswer:" so the model concludes instead of
+            # looping latent steps to the token budget. Deterministic force-inject
+            # (mirrors the "Step N+1:" header injection); then normal sampling emits
+            # the answer and terminates (EOS un-masks once </think> is present).
+            if (_at_step_boundary and _think_close_count == 0
+                    and _current_step_num >= _MAX_REASONING_STEPS):
+                _at_step_boundary = False
+                _step_state       = "normal"
+                _concl_ids = _tok.encode("\n</think>\nAnswer:", add_special_tokens=False)
+                for _cid in _concl_ids:
+                    _c_tok = torch.full((B, 1), _cid, dtype=torch.long, device=device)
+                    _c_emb = embed_layer(_c_tok).to(inputs_embeds)
+                    if factor > 0 and u_dna is not None:
+                        _cr = u_dna.detach().unsqueeze(1).to(_c_emb)
+                        with torch.no_grad():
+                            _cg, _ = thinking_gate(_c_emb, _cr)
+                        _c_emb = (1.0 - factor) * _c_emb + factor * _cg
+                    _c_ext = torch.ones(B, 1, dtype=curr_mask.dtype, device=device)
+                    curr_mask = torch.cat([curr_mask, _c_ext], dim=1)
+                    with torch.no_grad():
+                        _c_out = self.text_model(
+                            inputs_embeds        = _c_emb,
+                            attention_mask       = curr_mask,
+                            past_key_values      = past_kv,
+                            use_cache            = True,
+                            output_hidden_states = True,
+                        )
+                    past_kv = _c_out.past_key_values
+                    h_last  = _c_out.hidden_states[-1]
+                    generated.append(_c_tok)
+                    gen_meta.append({"step": step, "is_latent": False,
+                                     "entropy": 0.0, "dna_injected": False})
+                logits = self.text_model.lm_head(h_last)
+                _think_close_count = 1                     # </think> now emitted
+                eos_ids.update(_think_close_ids)           # a 2nd </think> -> EOS
+                _answer_started    = True                  # answer line has begun
+                continue
 
             if _at_step_boundary and not is_structural:
                 _at_step_boundary = False
