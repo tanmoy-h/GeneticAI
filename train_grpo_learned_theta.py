@@ -120,6 +120,14 @@ class GRPOScriptArgumentsOptB(GRPOScriptArgumentsW9):
                           "reasoning at inference. Note: theta must be forced OFF here, not high — "
                           "high theta_low makes latents fire MORE."},
     )
+    eval_only: bool = field(
+        default=False,
+        metadata={"help": "Zero-training evaluation. Loads the checkpoint (LoRA adapter via "
+                          "trainer._load_from_checkpoint + gate/injector/theta from the manual "
+                          "block), runs trainer.evaluate() once, prints eval metrics, and exits "
+                          "WITHOUT any optimizer steps. Requires --resume_from_checkpoint. Combine "
+                          "with --disable_latents for a pure latent-off inference measurement."},
+    )
 
 
 # ── Learnable LatentSp controller ─────────────────────────────────────────────
@@ -808,6 +816,24 @@ def main(script_args, training_args, model_args):
             print(f"[OptB] Loaded theta_low_param={latentSp_ctrl.theta_low_param.item():.4f} ← {theta_pt}")
         else:
             print(f"[OptB] No theta_low.pt in {resume} — keeping init value")
+
+    # ── Eval-only (zero training) ─────────────────────────────────────────────
+    if script_args.eval_only:
+        if not (resume and isinstance(resume, str)):
+            raise ValueError("--eval_only requires --resume_from_checkpoint <checkpoint-N>")
+        if training_args.eval_strategy == "no" or data.get("val") is None:
+            raise ValueError("--eval_only needs an eval dataset: set --eval_strategy steps "
+                             "(and --max_eval_samples) so a val split is built.")
+        # Load the GRPO-trained LoRA adapter / model weights (gate/injector/theta
+        # were already restored by the manual block above). This is what
+        # trainer.train(resume_from_checkpoint=...) does internally before step 0.
+        trainer._load_from_checkpoint(resume)
+        print(f"[OptB] eval_only: loaded model weights ← {resume}; running trainer.evaluate() ...")
+        metrics = trainer.evaluate()
+        print(f"[OptB] eval_only metrics: {metrics}")
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+        return
 
     trainer.train(resume_from_checkpoint=resume)
 
