@@ -111,6 +111,15 @@ class GRPOScriptArgumentsOptB(GRPOScriptArgumentsW9):
         metadata={"help": "Sigmoid temperature: p_latent = sigmoid(alpha*(theta - entropy)). "
                           "Higher alpha → sharper decision boundary.  Keep fixed during training."},
     )
+    disable_latents: bool = field(
+        default=False,
+        metadata={"help": "Latent ablation. When True, is_latent_step() always returns False "
+                          "(no <start-latent>/<latent>/<end-latent> blocks are emitted) regardless "
+                          "of theta_low or entropy, and the checkpoint's theta_low.pt is NOT reloaded "
+                          "on resume. Use to measure a with-latent checkpoint's reliance on latent "
+                          "reasoning at inference. Note: theta must be forced OFF here, not high — "
+                          "high theta_low makes latents fire MORE."},
+    )
 
 
 # ── Learnable LatentSp controller ─────────────────────────────────────────────
@@ -143,12 +152,14 @@ class LatentSpControllerOptB(nn.Module):
         theta_high:      float = 2.5,
         max_consecutive: int   = 3,
         alpha:           float = 5.0,
+        disabled:        bool  = False,
     ):
         super().__init__()
         self.theta_low_param  = nn.Parameter(torch.tensor(float(theta_low_init)))
         self.theta_high       = theta_high
         self.max_consecutive  = max_consecutive
         self.alpha            = alpha  # fixed sigmoid temperature
+        self.disabled         = disabled  # latent ablation: hard-off, ignores theta/entropy
 
         # Set by LatentSpWarmupCallbackOptB at each step.
         self._warmup_scale: float = 0.0
@@ -160,6 +171,8 @@ class LatentSpControllerOptB(nn.Module):
     @property
     def theta_low(self) -> float:
         """Effective theta_low for display / downstream callers."""
+        if self.disabled:
+            return 0.0  # latent ablation: report 0 so downstream 'theta<=0' guards see latents-off
         return float(self.theta_low_param.clamp(0.05, 8.0).item()) * self._warmup_scale
 
     def is_latent_step(self, entropy: float, consecutive: int) -> bool:
@@ -169,6 +182,8 @@ class LatentSpControllerOptB(nn.Module):
         Falls back to deterministic False when _warmup_scale=0 (warmup phase) so
         generation is well-defined even before the param has been trained at all.
         """
+        if self.disabled:
+            return False  # latent ablation: never fire a latent step
         if self._warmup_scale <= 0.0:
             return False
 
@@ -594,7 +609,10 @@ def main(script_args, training_args, model_args):
         theta_high      = script_args.latentSp_theta_high,
         max_consecutive = script_args.latentSp_max_consec,
         alpha           = script_args.theta_low_alpha,
+        disabled        = script_args.disable_latents,
     ).to("cuda")  # theta_low_param must live on the same device as the GRPO loss
+    if script_args.disable_latents:
+        print("[OptB] --disable_latents: latent steps HARD-OFF (ablation); theta_low.pt will not be reloaded.")
     # Scale starts at 0 when warmup is requested (same effective behaviour as w9)
     if _use_warmup:
         latentSp_ctrl._warmup_scale = 0.0
@@ -779,7 +797,9 @@ def main(script_args, training_args, model_args):
                 obj.load_state_dict(torch.load(pt, map_location="cpu"))
                 print(f"[OptB] Loaded {fname} ← {pt}")
         theta_pt = os.path.join(resume, "theta_low.pt")
-        if os.path.exists(theta_pt):
+        if script_args.disable_latents:
+            print("[OptB] --disable_latents: skipping theta_low.pt reload (latents stay hard-off).")
+        elif os.path.exists(theta_pt):
             saved = torch.load(theta_pt, map_location="cpu")
             with torch.no_grad():
                 latentSp_ctrl.theta_low_param.copy_(
