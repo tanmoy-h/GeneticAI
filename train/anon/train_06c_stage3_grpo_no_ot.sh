@@ -29,15 +29,45 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 STAGE1_CKPT=${STAGE1_CKPT:-}
 GATE_CKPT_DIR=${GATE_CKPT_DIR:-}
 
-## Use Stage 1.51 checkpoint recorded by training (written by train_04_stage1_51.sh)
+## Pick Stage 1.51 starting checkpoint — IDENTICAL logic to anon train_06b_stage3_grpo_optB.sh
+## so this ablation starts from the SAME checkpoint as the main run (isolates only OT).
+## Priority: (1) explicit STAGE1_CKPT, (2) deterministic pointer from the 1.51 eval,
+## (3) best-ACCURACY checkpoint from the latest test_04b eval JSON, (4) fallback to
+## stage151_ckpt.txt (best val_loss).
+_S151_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51_anon
+_PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+if [ -z "${STAGE1_CKPT:-}" ] && [ -f "$_S151_DIR/stage151_eval_best_ckpt.txt" ]; then
+    STAGE1_CKPT=$(cat "$_S151_DIR/stage151_eval_best_ckpt.txt")
+    echo "STAGE1_CKPT (from stage151_eval_best_ckpt.txt): $STAGE1_CKPT"
+fi
+
 if [ -z "${STAGE1_CKPT:-}" ]; then
-    _TRAIN_CKPT_FILE=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51_anon/stage151_ckpt.txt
+    _RESULTS_JSON=$(find "$_PROJECT_DIR/test/anon/logs" \
+        -not -path "*/.*/*" \
+        -name "test_04b_eval_stage1_51_results_*.json" 2>/dev/null | sort -V | tail -1)
+    if [ -n "$_RESULTS_JSON" ]; then
+        STAGE1_CKPT=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$_RESULTS_JSON'))
+    print(d['best']['full_path'])
+except Exception:
+    sys.exit(1)
+" 2>/dev/null)
+        [ -n "$STAGE1_CKPT" ] && echo "STAGE1_CKPT (best accuracy from eval): $STAGE1_CKPT" \
+            || echo "WARNING: could not parse best checkpoint from $_RESULTS_JSON"
+    fi
+fi
+
+if [ -z "${STAGE1_CKPT:-}" ]; then
+    _TRAIN_CKPT_FILE="$_S151_DIR/stage151_ckpt.txt"
     if [ -f "$_TRAIN_CKPT_FILE" ]; then
         STAGE1_CKPT=$(cat "$_TRAIN_CKPT_FILE")
-        echo "STAGE1_CKPT (from training): $STAGE1_CKPT"
+        echo "STAGE1_CKPT (fallback, best val_loss): $STAGE1_CKPT"
     else
-        echo "ERROR: STAGE1_CKPT not set and $_TRAIN_CKPT_FILE not found."
-        echo "       Run train_04_stage1_51.sh first, or set STAGE1_CKPT=<path> explicitly."
+        echo "ERROR: STAGE1_CKPT not set, no eval JSON, and $_TRAIN_CKPT_FILE not found."
+        echo "       Run train_04_stage1_51.sh (+ test_04b_eval_stage1_51.sh), or set STAGE1_CKPT=<path>."
         exit 1
     fi
 fi
