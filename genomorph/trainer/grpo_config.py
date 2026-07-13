@@ -270,9 +270,9 @@ class DNALLMGRPOConfig(TrainingArguments):
         default=100,
         metadata={"help": "Save checkpoint every X update steps."},
     )
-    save_total_limit: int = field(
-        default=2,
-        metadata={"help": "Limit the total amount of checkpoints. Deletes the older checkpoints."},
+    save_total_limit: Optional[int] = field(
+        default=None,
+        metadata={"help": "Limit the total amount of checkpoints. None = keep all; KeepBestNCheckpointsCallback owns pruning by eval metric. Do NOT set a small int here: HF rotates by recency inside _save_checkpoint (before callbacks), which deletes metric-best-but-older checkpoints and defeats KeepBestN."},
     )
     eval_strategy: str = field(
         default="no",
