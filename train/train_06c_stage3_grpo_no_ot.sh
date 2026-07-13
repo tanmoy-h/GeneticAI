@@ -146,7 +146,7 @@ args=(
     --beta                   0.05
     --epsilon                0.1
     --max_grad_norm          0.1
-    --reward_funcs           xmlcount soft_format correctness completion_quality reasoning_quality latent_usage
+    --reward_funcs           format correctness completion_quality reasoning_quality latent_format latent_usage
     --manifold_weight        0.0
 
     ## Training
@@ -160,7 +160,6 @@ args=(
     --eval_strategy          steps
     --eval_steps             $SAVE_STEPS
     --save_steps             $SAVE_STEPS
-    --save_total_limit       4
     --load_best_model_at_end True
     --metric_for_best_model  correctness
     --greater_is_better      True
