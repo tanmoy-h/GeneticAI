@@ -367,17 +367,19 @@ class PreferLatestOnTieCallback(TrainerCallback):
 # ── Keep only the top-N checkpoints by eval metric ────────────────────────────
 
 class KeepBestNCheckpointsCallback(TrainerCallback):
-    """Retain the top-N checkpoints ranked by the eval metric
-    (`metric_for_best_model` = `correctness`, which the evaluate() override
+    """Retain every checkpoint whose eval score falls in the top-N DISTINCT score
+    tiers (`metric_for_best_model` = `correctness`, which the evaluate() override
     computes as val accuracy — fraction correct in [0,1], on a fixed 50-record
     slice with greedy decoding); delete the rest after each save. Rank 0 only.
 
-    Ties: checkpoints tied with the N-th at the cutoff score are ALL kept, so more
-    than N may survive (the 50-record eval has 2% granularity, so ties are common).
+    N counts distinct score VALUES, not checkpoints: with N=2 and scores
+    {0.90,0.90,0.90,0.86} the two top tiers are {0.90, 0.86}, so ALL four survive.
+    A checkpoint is dropped only once N strictly better score tiers exist above it.
+    (The 50-record eval has 2% granularity, so many checkpoints share a score.)
 
     HF's own save_total_limit rotates by *recency* (keeping best-1 + most-recent),
-    which would delete a high-accuracy *old* checkpoint. This callback instead
-    ranks every saved checkpoint by its recorded eval score and keeps the best N.
+    which would delete a high-accuracy *old* checkpoint. This callback keeps by
+    score tier instead.
 
     Safety: never deletes the current-step checkpoint or best_model_checkpoint, and
     never touches a checkpoint it has no eval score for (e.g. ones inherited from a
@@ -414,22 +416,21 @@ class KeepBestNCheckpointsCallback(TrainerCallback):
             if m and os.path.isdir(p):
                 existing[int(m.group(1))] = p
 
-        # Rank checkpoints we have eval scores for (best first; tie-break toward the
-        # later checkpoint just for a stable print order).
+        # Keep every checkpoint whose score is in the top-N DISTINCT score tiers.
+        # N counts distinct accuracy VALUES, not checkpoints — so all checkpoints
+        # sharing a kept tier survive, and a lower tier is retained until N strictly
+        # better tiers exist above it. E.g. N=2, scores {0.90,0.90,0.90,0.86} -> keep
+        # tiers {0.90, 0.86} -> all four kept.
+        _r = lambda v: round(v, 6)                        # guard float jitter
         scored = sorted(
             ((s, self.scores[s]) for s in existing if s in self.scores),
             key=lambda x: (x[1] if self.greater else -x[1], x[0]),
-            reverse=True,
+            reverse=True,                                 # for a stable print order
         )
-        # Keep the best N, but KEEP ALL checkpoints tied with the N-th at the
-        # cutoff score — so an equal-accuracy tie never arbitrarily drops one
-        # (may retain more than N).
-        if len(scored) <= self.n:
-            keep = {s for s, _ in scored}
-        else:
-            cutoff = scored[self.n - 1][1]
-            keep = {s for s, v in scored
-                    if (v >= cutoff if self.greater else v <= cutoff)}
+        top_tiers = set(
+            sorted({_r(v) for _, v in scored}, reverse=self.greater)[: self.n]
+        )
+        keep = {s for s, v in scored if _r(v) in top_tiers}
         keep.add(state.global_step)                       # never drop the latest
         if state.best_model_checkpoint:                   # never drop HF's best
             m = re.search(r"checkpoint-(\d+)", state.best_model_checkpoint)
@@ -441,10 +442,11 @@ class KeepBestNCheckpointsCallback(TrainerCallback):
                 continue
             shutil.rmtree(existing[s], ignore_errors=True)
             print(f"[KeepBestN] Removed checkpoint-{s} ({self.key}={score:.4f}) "
-                  f"— keeping best-{self.n} (+ ties)", flush=True)
+                  f"— keeping top-{self.n} score tiers", flush=True)
 
         kept = sorted(s for s in existing if s in keep or s not in self.scores)
-        print(f"[KeepBestN] Kept checkpoints (ranked by {self.key}): {kept}", flush=True)
+        print(f"[KeepBestN] Kept checkpoints (top-{self.n} {self.key} tiers): {kept}",
+              flush=True)
 
 
 # ── Trainer with REINFORCE theta_loss ─────────────────────────────────────────
