@@ -4,8 +4,8 @@
 #SBATCH --mem=160G
 #SBATCH --time=16:00:00
 #SBATCH --cpus-per-task=16
-#SBATCH --output=train/logs/stage3_grpo_no_latentsp_anon_%j.out
-#SBATCH --error=train/logs/stage3_grpo_no_latentsp_anon_%j.err
+#SBATCH --output=train/anon/logs/stage3_grpo_no_latentsp_anon_%j.out
+#SBATCH --error=train/anon/logs/stage3_grpo_no_latentsp_anon_%j.err
 
 ## Ablation: GenoMorph-B without LatentSp — anonymous dataset variant.
 ##
@@ -87,7 +87,7 @@ module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
 cd "$(dirname "$0")/../.."
-mkdir -p train/logs
+mkdir -p train/anon/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export WANDB_PROJECT
@@ -114,8 +114,8 @@ else
 fi
 TOTAL_STEPS=$(( STEPS_PER_EPOCH * 3 ))
 
-LOG=train/logs/stage3_grpo_no_latentsp_anon_$(date +%Y%m%d_%H%M%S).log
-mkdir -p train/logs
+LOG=train/anon/logs/stage3_grpo_no_latentsp_anon_$(date +%Y%m%d_%H%M%S).log
+mkdir -p train/anon/logs
 exec > >(tee "$LOG") 2>&1
 echo "Command:     bash $0 $*"
 echo "Logging to:  $LOG"
