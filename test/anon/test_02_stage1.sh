@@ -10,9 +10,39 @@ CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
 KEGG_CSV=${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}
 
+CKPT_DIR=${CKPT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_02_stage1_sft_anon}
+
+## Auto-pick best checkpoint (lowest val_loss_epoch in filename) when CKPT_PATH unset.
+## Stage 1 SFT keeps save_top_k=2 by val_loss + last.ckpt; the best is the lowest
+## val_loss encoded in the filename. Falls back to last.ckpt.
 if [ -z "${CKPT_PATH:-}" ]; then
-    echo "ERROR: CKPT_PATH is not set."
-    echo "Usage: CKPT_PATH=<path> bash test/test_02_stage1.sh [gpu_id]"
+    CKPT_PATH=$(CKPT_DIR="$CKPT_DIR" python3 -c '
+import glob, os, re
+d = os.environ["CKPT_DIR"]
+best, best_loss = None, float("inf")
+for f in glob.glob(os.path.join(d, "*.ckpt")):
+    b = os.path.basename(f)
+    if b == "last.ckpt":
+        continue
+    m = re.search(r"val_loss_epoch=([0-9]+\.[0-9]+)", b) or re.search(r"-([0-9]+\.[0-9]+)\.ckpt$", b)
+    if not m:
+        continue
+    v = float(m.group(1))
+    if v < best_loss:
+        best, best_loss = f, v
+print(best or "")
+' 2>/dev/null)
+    if [ -n "$CKPT_PATH" ]; then
+        echo "CKPT_PATH (best val_loss, auto): $CKPT_PATH"
+    elif [ -f "$CKPT_DIR/last.ckpt" ]; then
+        CKPT_PATH="$CKPT_DIR/last.ckpt"
+        echo "CKPT_PATH (fallback, last.ckpt): $CKPT_PATH"
+    fi
+fi
+
+if [ -z "${CKPT_PATH:-}" ]; then
+    echo "ERROR: CKPT_PATH not set and no checkpoint found in $CKPT_DIR."
+    echo "Usage: CKPT_PATH=<path> bash test/anon/test_02_stage1.sh [gpu_id]"
     exit 1
 fi
 
