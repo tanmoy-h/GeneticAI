@@ -19,7 +19,7 @@ if [ -z "${CKPT_PATH:-}" ]; then
 import glob, os, re
 d = os.environ["CKPT_DIR"]
 best, best_loss = None, float("inf")
-for f in glob.glob(os.path.join(d, "*.ckpt")):
+for f in glob.glob(os.path.join(d, "**", "*.ckpt"), recursive=True):
     b = os.path.basename(f)
     if b == "last.ckpt":
         continue
@@ -33,9 +33,9 @@ print(best or "")
 ' 2>/dev/null)
     if [ -n "$CKPT_PATH" ]; then
         echo "CKPT_PATH (best val_loss, auto): $CKPT_PATH"
-    elif [ -f "$CKPT_DIR/last.ckpt" ]; then
-        CKPT_PATH="$CKPT_DIR/last.ckpt"
-        echo "CKPT_PATH (fallback, last.ckpt): $CKPT_PATH"
+    else
+        CKPT_PATH=$(find "$CKPT_DIR" -name last.ckpt 2>/dev/null | head -1)
+        [ -n "$CKPT_PATH" ] && echo "CKPT_PATH (fallback, last.ckpt): $CKPT_PATH"
     fi
 fi
 
