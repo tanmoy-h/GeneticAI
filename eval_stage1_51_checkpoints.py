@@ -430,7 +430,7 @@ def worker_fn(gpu_id: int, ckpt_paths: List[str], val_rows: List[dict],
                 print_samples  = args.print_samples,
             )
             acc = n_correct / n_total if n_total else 0.0
-            print(f"[{gpu_tag}] {label}: {n_correct}/{n_total} ({acc*100:.1f}%)  "
+            print(f"[{gpu_tag}] {label}: {acc:.4f} ({n_correct}/{n_total})  "
                   f"{mean_time:.2f}s/sample", flush=True)
             worker_results.append((label, n_correct, n_total, acc, ckpt_path, details, mean_time))
         except Exception as exc:
@@ -531,7 +531,7 @@ def main():
                 gpu_tag=f"GPU{active_gpus[0]}",
             )
             acc = n_correct / n_total if n_total else 0.0
-            print(f"  Accuracy: {n_correct}/{n_total}  ({acc*100:.1f}%)  "
+            print(f"  Accuracy: {acc:.4f}  ({n_correct}/{n_total})  "
                   f"{mean_time:.2f}s/sample")
             all_results.append((label, n_correct, n_total, acc, ckpt_path, details, mean_time))
 
@@ -595,14 +595,14 @@ def main():
     for rank, (label, nc, nt, acc, _, details, mtime) in enumerate(all_results, 1):
         star = "  ★ BEST" if rank == 1 else ""
         _, _, f1_mac, _, _, f1_wt = _f1_from_details(details)
-        print(f"  {rank:<5} {acc*100:>9.1f}%  {f1_mac:>8.4f}  {f1_wt:>8.4f}  {nc:>3}/{nt:<3}  {mtime:>7.2f}     {label}{star}")
+        print(f"  {rank:<5} {acc:>10.4f}  {f1_mac:>8.4f}  {f1_wt:>8.4f}  {nc:>3}/{nt:<3}  {mtime:>7.2f}     {label}{star}")
     print(sep)
 
     if all_results:
         best_label, best_nc, best_nt, best_acc, best_path, best_details, best_mtime = all_results[0]
         prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_wt = _f1_from_details(best_details)
         print(f"\n  Best checkpoint : {best_path}")
-        print(f"  Accuracy        : {best_nc}/{best_nt}  ({best_acc*100:.1f}%)")
+        print(f"  Accuracy        : {best_acc:.4f}  ({best_nc}/{best_nt})")
         print(f"  Precision       : {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)")
         print(f"  Recall          : {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)")
         print(f"  F1              : {f1_mac:.4f}  (macro)   {f1_wt:.4f}  (weighted)")
