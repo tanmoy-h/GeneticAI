@@ -31,7 +31,7 @@ Two answer-matching rules (`is_correct`), reported side by side for Stage 3:
 
 ## Configuration + metrics
 
-| Model | DNA Fusion | LatentSp | Latent@infer | Gate | HiRef OT | Acc (named) | Avg Time (named) | F1 (named) | Acc (anon) | Avg Time (anon) | F1 (anon) |
+| Model | DNA Fusion | LatentSp | Latent@infer | Gate | HiRef OT | Acc (named) | F1 (named) | Avg Time (named) | Acc (anon) | F1 (anon) | Avg Time (anon) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | LLM-only | ✗ | ✗ | — | ✗ | ✗ | — | — | — | — | — | — |
 | BioReason (LLM + DNA) | Linear proj. | ✗ | — | ✗ | ✗ | — | — | — | — | — | — |
