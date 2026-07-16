@@ -49,10 +49,10 @@ if [ -z "${STAGE1_CKPT:-}" ]; then
 fi
 ## Auto-detect latest Stage 3 checkpoint dir if not set
 if [ -z "${STAGE3_CKPT_DIR:-}" ]; then
-    STAGE3_CKPT_DIR=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo \
+    STAGE3_CKPT_DIR=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo_anon \
         -maxdepth 1 -name "checkpoint-*" -type d 2>/dev/null | sort -V | tail -1)
     [ -n "$STAGE3_CKPT_DIR" ] && echo "Auto-detected STAGE3_CKPT_DIR: $STAGE3_CKPT_DIR" \
-        || echo "WARNING: could not auto-detect STAGE3_CKPT_DIR from train_06_stage3_grpo"
+        || echo "WARNING: could not auto-detect STAGE3_CKPT_DIR from train_06_stage3_grpo_anon"
 fi
 GATE_CKPT=${GATE_CKPT:-${STAGE3_CKPT_DIR:+${STAGE3_CKPT_DIR}/thinking_gate.pt}}
 INJECTOR_CKPT=${INJECTOR_CKPT:-${STAGE3_CKPT_DIR:+${STAGE3_CKPT_DIR}/dna_injector.pt}}

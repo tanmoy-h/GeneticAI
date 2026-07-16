@@ -45,10 +45,10 @@ CKPT=${CKPT:-}
 
 ## Auto-detect latest Stage 3 checkpoint if not set
 if [ -z "${CKPT:-}" ]; then
-    CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo \
+    CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06_stage3_grpo_anon \
         -maxdepth 1 -name "checkpoint-*" -type d 2>/dev/null | sort -V | tail -1)
     [ -n "$CKPT" ] && echo "Auto-detected CKPT: $CKPT" \
-        || echo "WARNING: could not auto-detect CKPT from train_06_stage3_grpo"
+        || echo "WARNING: could not auto-detect CKPT from train_06_stage3_grpo_anon"
 fi
 
 ## Split: val | test | both
@@ -61,7 +61,7 @@ N_SAMPLES=${N_SAMPLES:--1}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 
 ## Stage 2 manifold
-STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref}
+STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref_anon}
 
 ## optB: path to theta_low.pt inside the checkpoint dir
 ## For standard w9 this file won't exist — falls back to fixed --theta_low
