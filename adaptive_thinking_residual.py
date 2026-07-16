@@ -390,14 +390,18 @@ class ThinkingResidualGRPOTrainer(DNALLMGRPOTrainer):
               f"base_lr={base_lr:.2e}  gate_lr={base_lr*20:.2e}")
         return self.optimizer
 
-    def _compute_val_correctness(self, eval_dataset=None) -> float:
+    def _compute_val_correctness(self, eval_dataset=None) -> dict:
+        import time
         import torch.distributed as dist
         from functools import partial
+        from collections import defaultdict
         from genomorph.dataset.kegg import qwen_dna_collate_fn
 
+        empty = {"correctness": 0.0, "macro_f1": 0.0,
+                 "weighted_f1": 0.0, "mean_time_sec": 0.0}
         dataset = eval_dataset or self.eval_dataset
         if dataset is None:
-            return 0.0
+            return empty
 
         max_samples = self.max_eval_samples
         if max_samples and len(dataset) > max_samples:
@@ -423,8 +427,8 @@ class ThinkingResidualGRPOTrainer(DNALLMGRPOTrainer):
         if gc_was_enabled:
             text_model.gradient_checkpointing_disable()
 
-        correct = 0
-        n       = 0
+        # Per-sample records: (gt, pred, is_correct, gen_time_sec)
+        local_records = []
         for i in range(rank, len(dataset), world_size):
             sample = dataset[i]
             try:
@@ -441,44 +445,96 @@ class ThinkingResidualGRPOTrainer(DNALLMGRPOTrainer):
 
             with torch.no_grad():
                 try:
+                    _t0 = time.perf_counter()
                     generated_ids = unwrapped.generate_with_hrpo_gate(
                         input_ids=input_ids, attention_mask=attention_mask,
                         dna_tokenized=dna_tokenized, batch_idx_map=batch_idx_map,
                         max_new_tokens=800, temperature=0.0,
                         repetition_penalty=getattr(self.args, "repetition_penalty", 1.2),
                     )
+                    _gen_time = time.perf_counter() - _t0
                 except Exception as exc:
                     print(f"[CorrectnessEval] rank={rank} generation failed: {exc}")
                     continue
 
+            _per = _gen_time / max(len(answers), 1)   # per-sample share of this call
             for gen_ids, answer in zip(generated_ids, answers):
                 text       = processor.tokenizer.decode(gen_ids, skip_special_tokens=False)
                 extracted  = NucleotideDNAModule._extract_xml_answer(text)
-                is_correct = answer.lower() in extracted.lower()
-                if is_correct:
-                    correct += 1
+                gt         = answer.lower().strip()
+                pred       = extracted.lower().strip()
+                is_correct = bool(pred) and gt in pred   # one-dir (matches test_06b)
+                local_records.append((gt, pred, is_correct, _per))
                 if rank == 0:
                     mark = "✓" if is_correct else "✗"
                     print(f"[CorrectnessEval] {mark} answer={repr(answer)} | "
                           f"extracted={repr(extracted[:80])}")
-                n += 1
 
         if gc_was_enabled:
             text_model.gradient_checkpointing_enable()
 
-        counts = torch.tensor([correct, n], dtype=torch.float32, device=device)
-        if dist.is_available() and dist.is_initialized():
-            dist.all_reduce(counts, op=dist.ReduceOp.SUM)
-        total_correct, total_n = counts[0].item(), counts[1].item()
-        return total_correct / total_n if total_n > 0 else 0.0
+        # Gather per-sample records across ranks so every rank sees the full set
+        if dist.is_available() and dist.is_initialized() and world_size > 1:
+            gathered = [None] * world_size
+            dist.all_gather_object(gathered, local_records)
+            all_records = [r for sub in gathered if sub for r in sub]
+        else:
+            all_records = local_records
+
+        total = len(all_records)
+        if total == 0:
+            return empty
+
+        correct   = sum(1 for (_, _, c, _) in all_records if c)
+        acc       = correct / total
+        mean_time = sum(t for (_, _, _, t) in all_records) / total
+
+        # Macro-F1: mean of per-class F1 (same one-directional rule as accuracy;
+        # mirrors eval_grpo_checkpoint.py compute_metrics).
+        tp, fp, fn = defaultdict(int), defaultdict(int), defaultdict(int)
+        for gt, pred, c, _ in all_records:
+            if c:
+                tp[gt] += 1
+            else:
+                fn[gt] += 1
+                fp[pred] += 1
+        classes = sorted({gt for gt, _, _, _ in all_records})
+        f1s = []
+        for cls in classes:
+            p  = tp[cls] / (tp[cls] + fp[cls]) if (tp[cls] + fp[cls]) > 0 else 0.0
+            r  = tp[cls] / (tp[cls] + fn[cls]) if (tp[cls] + fn[cls]) > 0 else 0.0
+            f1s.append(2 * p * r / (p + r) if (p + r) > 0 else 0.0)
+        macro_f1 = sum(f1s) / len(classes) if classes else 0.0
+
+        # Weighted-F1 via sklearn (matches eval_grpo_checkpoint.py)
+        weighted_f1 = 0.0
+        try:
+            from sklearn.metrics import f1_score as sk_f1
+            y_true = [gt for gt, _, _, _ in all_records]
+            y_pred = [gt if c else pred for gt, pred, c, _ in all_records]
+            weighted_f1 = float(sk_f1(y_true, y_pred, labels=sorted(set(y_true)),
+                                      average="weighted", zero_division=0))
+        except Exception as exc:
+            print(f"[CorrectnessEval] weighted_f1 failed: {exc}")
+
+        return {"correctness": acc, "macro_f1": macro_f1,
+                "weighted_f1": weighted_f1, "mean_time_sec": mean_time}
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
-        correctness     = self._compute_val_correctness(eval_dataset)
-        correctness_key = f"{metric_key_prefix}_correctness"
-        metrics         = {correctness_key: correctness}
+        res = self._compute_val_correctness(eval_dataset)
+        p   = metric_key_prefix
+        metrics = {
+            f"{p}_correctness":   res["correctness"],   # metric_for_best_model
+            f"{p}_macro_f1":      res["macro_f1"],
+            f"{p}_weighted_f1":   res["weighted_f1"],
+            f"{p}_mean_time_sec": res["mean_time_sec"],
+        }
         self.log(metrics)
         if self.accelerator.process_index == 0:
-            print(f"[Eval] {correctness_key}={correctness:.3f}  "
+            print(f"[Eval] {p}_correctness={res['correctness']:.4f}  "
+                  f"macro_f1={res['macro_f1']:.4f}  "
+                  f"weighted_f1={res['weighted_f1']:.4f}  "
+                  f"mean_time={res['mean_time_sec']:.2f}s  "
                   f"step={self.state.global_step}")
         return metrics
 
