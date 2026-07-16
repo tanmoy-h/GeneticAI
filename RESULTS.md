@@ -31,18 +31,18 @@ Two answer-matching rules (`is_correct`), reported side by side for Stage 3:
 
 ## Configuration + metrics
 
-| Model | DNA Fusion | LatentSp | Latent@infer | Gate | HiRef OT | Acc (named) | Avg Time | F1 (named) | Acc (anon) | F1 (anon) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| LLM-only | ✗ | ✗ | — | ✗ | ✗ | — | — | — | — | — |
-| BioReason (LLM + DNA) | Linear proj. | ✗ | — | ✗ | ✗ | — | — | — | — | — |
-| Stage 1: CrossAttn SFT | CrossAttn | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — |
-| — + CLIP (ablated) | CrossAttn + CLIP | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — |
-| Stage 1.5.0: + LatentSp curriculum | CrossAttn | fixed θ | ✗ | ✗ | ✗ | — | — | — | — | — |
-| Stage 1.5.1: + Gate training | CrossAttn | fixed θ | ✗ | ✓ | ✗ | — | — | — | — | — |
-| GenoMorph: GRPO, fixed θ_low | CrossAttn | fixed θ | ✓ | ✓ | ✓ | — | — | — | — | — |
-| **GenoMorph-B: learned θ_low** | CrossAttn | learned θ | ✓ | ✓ | ✓ | — | — | — | — | — |
-| — w/o OT reward | CrossAttn | learned θ | ✓ | ✓ | ✗ | — | — | — | — | — |
-| — w/o LatentSp | CrossAttn | ✗ | ✗ | ✓ | ✓ | — | — | — | — | — |
+| Model | DNA Fusion | LatentSp | Latent@infer | Gate | HiRef OT | Acc (named) | Avg Time (named) | F1 (named) | Acc (anon) | Avg Time (anon) | F1 (anon) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| LLM-only | ✗ | ✗ | — | ✗ | ✗ | — | — | — | — | — | — |
+| BioReason (LLM + DNA) | Linear proj. | ✗ | — | ✗ | ✗ | — | — | — | — | — | — |
+| Stage 1: CrossAttn SFT | CrossAttn | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — | — |
+| — + CLIP (ablated) | CrossAttn + CLIP | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — | — |
+| Stage 1.5.0: + LatentSp curriculum | CrossAttn | fixed θ | ✗ | ✗ | ✗ | — | — | — | — | — | — |
+| Stage 1.5.1: + Gate training | CrossAttn | fixed θ | ✗ | ✓ | ✗ | — | — | — | — | — | — |
+| GenoMorph: GRPO, fixed θ_low | CrossAttn | fixed θ | ✓ | ✓ | ✓ | — | — | — | — | — | — |
+| **GenoMorph-B: learned θ_low** | CrossAttn | learned θ | ✓ | ✓ | ✓ | — | — | — | — | — | — |
+| — w/o OT reward | CrossAttn | learned θ | ✓ | ✓ | ✗ | — | — | — | — | — | — |
+| — w/o LatentSp | CrossAttn | ✗ | ✗ | ✓ | ✓ | — | — | — | — | — | — |
 
 Column meanings:
 - **LatentSp** — latent-space reasoning **trained into the model**: `fixed θ` =
