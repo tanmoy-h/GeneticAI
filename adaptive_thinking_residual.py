@@ -397,8 +397,10 @@ class ThinkingResidualGRPOTrainer(DNALLMGRPOTrainer):
         from collections import defaultdict
         from genomorph.dataset.kegg import qwen_dna_collate_fn
 
-        empty = {"correctness": 0.0, "macro_f1": 0.0,
-                 "weighted_f1": 0.0, "mean_time_sec": 0.0}
+        empty = {"correctness": 0.0, "n_correct": 0, "n_total": 0,
+                 "prec_macro": 0.0, "prec_weighted": 0.0,
+                 "recall_macro": 0.0, "recall_weighted": 0.0,
+                 "macro_f1": 0.0, "weighted_f1": 0.0, "mean_time_sec": 0.0}
         dataset = eval_dataset or self.eval_dataset
         if dataset is None:
             return empty
@@ -489,53 +491,55 @@ class ThinkingResidualGRPOTrainer(DNALLMGRPOTrainer):
         acc       = correct / total
         mean_time = sum(t for (_, _, _, t) in all_records) / total
 
-        # Macro-F1: mean of per-class F1 (same one-directional rule as accuracy;
-        # mirrors eval_grpo_checkpoint.py compute_metrics).
-        tp, fp, fn = defaultdict(int), defaultdict(int), defaultdict(int)
-        for gt, pred, c, _ in all_records:
-            if c:
-                tp[gt] += 1
-            else:
-                fn[gt] += 1
-                fp[pred] += 1
-        classes = sorted({gt for gt, _, _, _ in all_records})
-        f1s = []
-        for cls in classes:
-            p  = tp[cls] / (tp[cls] + fp[cls]) if (tp[cls] + fp[cls]) > 0 else 0.0
-            r  = tp[cls] / (tp[cls] + fn[cls]) if (tp[cls] + fn[cls]) > 0 else 0.0
-            f1s.append(2 * p * r / (p + r) if (p + r) > 0 else 0.0)
-        macro_f1 = sum(f1s) / len(classes) if classes else 0.0
-
-        # Weighted-F1 via sklearn (matches eval_grpo_checkpoint.py)
-        weighted_f1 = 0.0
+        # Precision / recall / F1 (macro + weighted) via sklearn — same set and
+        # same one-directional rule as the standalone eval_stage1_51_checkpoints.py,
+        # so the training monitor and the standalone test report identically.
+        # A correct prediction counts as y_pred == gt; an incorrect one keeps its
+        # raw pred (so it lands in the wrong class).
+        prec_mac = rec_mac = macro_f1 = 0.0
+        prec_w = rec_w = weighted_f1 = 0.0
         try:
-            from sklearn.metrics import f1_score as sk_f1
+            from sklearn.metrics import (f1_score as sk_f1,
+                                         precision_score, recall_score)
             y_true = [gt for gt, _, _, _ in all_records]
             y_pred = [gt if c else pred for gt, pred, c, _ in all_records]
-            weighted_f1 = float(sk_f1(y_true, y_pred, labels=sorted(set(y_true)),
-                                      average="weighted", zero_division=0))
+            labels = sorted(set(y_true))
+            prec_mac    = float(precision_score(y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+            rec_mac     = float(recall_score(   y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+            macro_f1    = float(sk_f1(          y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+            prec_w      = float(precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+            rec_w       = float(recall_score(   y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+            weighted_f1 = float(sk_f1(          y_true, y_pred, labels=labels, average="weighted", zero_division=0))
         except Exception as exc:
-            print(f"[CorrectnessEval] weighted_f1 failed: {exc}")
+            print(f"[CorrectnessEval] sklearn metrics failed: {exc}")
 
-        return {"correctness": acc, "macro_f1": macro_f1,
-                "weighted_f1": weighted_f1, "mean_time_sec": mean_time}
+        return {"correctness": acc, "n_correct": correct, "n_total": total,
+                "prec_macro": prec_mac, "prec_weighted": prec_w,
+                "recall_macro": rec_mac, "recall_weighted": rec_w,
+                "macro_f1": macro_f1, "weighted_f1": weighted_f1,
+                "mean_time_sec": mean_time}
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         res = self._compute_val_correctness(eval_dataset)
         p   = metric_key_prefix
         metrics = {
-            f"{p}_correctness":   res["correctness"],   # metric_for_best_model
-            f"{p}_macro_f1":      res["macro_f1"],
-            f"{p}_weighted_f1":   res["weighted_f1"],
-            f"{p}_mean_time_sec": res["mean_time_sec"],
+            f"{p}_correctness":     res["correctness"],   # metric_for_best_model
+            f"{p}_prec_macro":      res["prec_macro"],
+            f"{p}_prec_weighted":   res["prec_weighted"],
+            f"{p}_recall_macro":    res["recall_macro"],
+            f"{p}_recall_weighted": res["recall_weighted"],
+            f"{p}_macro_f1":        res["macro_f1"],
+            f"{p}_weighted_f1":     res["weighted_f1"],
+            f"{p}_mean_time_sec":   res["mean_time_sec"],
         }
         self.log(metrics)
         if self.accelerator.process_index == 0:
-            print(f"[Eval] {p}_correctness={res['correctness']:.4f}  "
-                  f"macro_f1={res['macro_f1']:.4f}  "
-                  f"weighted_f1={res['weighted_f1']:.4f}  "
-                  f"mean_time={res['mean_time_sec']:.2f}s  "
-                  f"step={self.state.global_step}")
+            print(f"\n  Step            : {self.state.global_step}")
+            print(f"  Accuracy        : {res['correctness']:.4f}  ({res['n_correct']}/{res['n_total']})")
+            print(f"  Precision       : {res['prec_macro']:.4f}  (macro)   {res['prec_weighted']:.4f}  (weighted)")
+            print(f"  Recall          : {res['recall_macro']:.4f}  (macro)   {res['recall_weighted']:.4f}  (weighted)")
+            print(f"  F1              : {res['macro_f1']:.4f}  (macro)   {res['weighted_f1']:.4f}  (weighted)")
+            print(f"  Mean time/sample: {res['mean_time_sec']:.2f}s\n")
         return metrics
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
