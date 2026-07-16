@@ -26,6 +26,7 @@ import sys
 import csv
 import glob
 import json
+import time
 import random
 import argparse
 import types
@@ -264,6 +265,8 @@ def evaluate_checkpoint(
     n_correct = 0
     details: List[Tuple[str, str, bool, str, str]] = []
     prefix    = f"[{gpu_tag}] " if gpu_tag else ""
+    total_gen_time = 0.0   # wall-clock generate() time over timed samples
+    n_timed        = 0
 
     for sample_num, idx in enumerate(sample_indices, 1):
         row       = val_rows[idx]
@@ -289,6 +292,7 @@ def evaluate_checkpoint(
         idx_map   = list(batch["batch_idx_map"])
 
         try:
+            _t0 = time.perf_counter()
             with torch.no_grad():
                 out_ids = model.generate(
                     input_ids            = input_ids,
@@ -302,6 +306,8 @@ def evaluate_checkpoint(
                     bad_words_ids        = [[start_id], [end_id], [latent_id]],
                     stopping_criteria    = stop_criteria,
                 )
+            total_gen_time += time.perf_counter() - _t0
+            n_timed        += 1
         except KeyError as e:
             print(f"  {prefix}[skip] DNA cache miss sample={idx}: {e}", flush=True)
             details.append(("", gt_answer, False, "", prompt_text))
@@ -336,7 +342,8 @@ def evaluate_checkpoint(
             tail = generated[-300:].replace("\n", "\\n")
             print(f"  {prefix}[debug] generated tail: ...{tail}", flush=True)
 
-    return n_correct, len(sample_indices), details
+    mean_time = total_gen_time / max(n_timed, 1)
+    return n_correct, len(sample_indices), details, mean_time
 
 
 # ── Worker subprocess ─────────────────────────────────────────────────────────
@@ -363,7 +370,7 @@ def worker_fn(gpu_id: int, ckpt_paths: List[str], val_rows: List[dict],
         label = os.path.relpath(ckpt_path, args.ckpt_dir)
         print(f"[{gpu_tag}] ── {label} ──", flush=True)
         try:
-            n_correct, n_total, details = evaluate_checkpoint(
+            n_correct, n_total, details, mean_time = evaluate_checkpoint(
                 model          = model,
                 ckpt_path      = ckpt_path,
                 val_rows       = val_rows,
@@ -374,11 +381,12 @@ def worker_fn(gpu_id: int, ckpt_paths: List[str], val_rows: List[dict],
                 print_samples  = args.print_samples,
             )
             acc = n_correct / n_total if n_total else 0.0
-            print(f"[{gpu_tag}] {label}: {n_correct}/{n_total} ({acc*100:.1f}%)", flush=True)
-            worker_results.append((label, n_correct, n_total, acc, ckpt_path, details))
+            print(f"[{gpu_tag}] {label}: {n_correct}/{n_total} ({acc*100:.1f}%)  "
+                  f"{mean_time:.2f}s/sample", flush=True)
+            worker_results.append((label, n_correct, n_total, acc, ckpt_path, details, mean_time))
         except Exception as exc:
             print(f"[{gpu_tag}] ERROR on {label}: {exc}", flush=True)
-            worker_results.append((label, 0, len(sample_indices), 0.0, ckpt_path, []))
+            worker_results.append((label, 0, len(sample_indices), 0.0, ckpt_path, [], 0.0))
 
     result_queue.put(worker_results)
     print(f"[{gpu_tag}] Done.", flush=True)
@@ -462,15 +470,16 @@ def main():
         for ckpt_path in ckpt_paths:
             label = os.path.relpath(ckpt_path, args.ckpt_dir)
             print(f"\n[eval] ── {label} ──")
-            n_correct, n_total, details = evaluate_checkpoint(
+            n_correct, n_total, details, mean_time = evaluate_checkpoint(
                 model, ckpt_path, val_rows, sample_indices,
                 device, args.max_new_tokens,
                 print_samples=args.print_samples,
                 gpu_tag=f"GPU{active_gpus[0]}",
             )
             acc = n_correct / n_total if n_total else 0.0
-            print(f"  Accuracy: {n_correct}/{n_total}  ({acc*100:.1f}%)")
-            all_results.append((label, n_correct, n_total, acc, ckpt_path, details))
+            print(f"  Accuracy: {n_correct}/{n_total}  ({acc*100:.1f}%)  "
+                  f"{mean_time:.2f}s/sample")
+            all_results.append((label, n_correct, n_total, acc, ckpt_path, details, mean_time))
 
     else:
         # ── Multi-process path: one subprocess per GPU ────────────────────────
@@ -527,22 +536,23 @@ def main():
     print(f"  STAGE 1.5 CHECKPOINT RANKING{s_tag}  (ranked by macro-F1)  "
           f"(n={n}, seed={args.seed}, gpu={gpu_str})")
     print(sep)
-    print(f"  {'Rank':<5} {'Accuracy':>10}  {'F1-mac':>8}  {'F1-wt':>8}  {'Correct':>9}  Checkpoint")
-    print("  " + "-" * 72)
-    for rank, (label, nc, nt, acc, _, details) in enumerate(all_results, 1):
+    print(f"  {'Rank':<5} {'Accuracy':>10}  {'F1-mac':>8}  {'F1-wt':>8}  {'Correct':>9}  {'Time/s':>7}  Checkpoint")
+    print("  " + "-" * 82)
+    for rank, (label, nc, nt, acc, _, details, mtime) in enumerate(all_results, 1):
         star = "  ★ BEST" if rank == 1 else ""
         _, _, f1_mac, _, _, f1_wt = _f1_from_details(details)
-        print(f"  {rank:<5} {acc*100:>9.1f}%  {f1_mac:>8.4f}  {f1_wt:>8.4f}  {nc:>3}/{nt:<3}     {label}{star}")
+        print(f"  {rank:<5} {acc*100:>9.1f}%  {f1_mac:>8.4f}  {f1_wt:>8.4f}  {nc:>3}/{nt:<3}  {mtime:>7.2f}     {label}{star}")
     print(sep)
 
     if all_results:
-        best_label, best_nc, best_nt, best_acc, best_path, best_details = all_results[0]
+        best_label, best_nc, best_nt, best_acc, best_path, best_details, best_mtime = all_results[0]
         prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_wt = _f1_from_details(best_details)
         print(f"\n  Best checkpoint : {best_path}")
         print(f"  Accuracy        : {best_nc}/{best_nt}  ({best_acc*100:.1f}%)")
         print(f"  Precision       : {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)")
         print(f"  Recall          : {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)")
-        print(f"  F1              : {f1_mac:.4f}  (macro)   {f1_wt:.4f}  (weighted)\n")
+        print(f"  F1              : {f1_mac:.4f}  (macro)   {f1_wt:.4f}  (weighted)")
+        print(f"  Mean time/sample: {best_mtime:.2f}s\n")
 
     # ── Write results JSON ────────────────────────────────────────────────────
     if args.results_json:
@@ -571,8 +581,9 @@ def main():
                     "accuracy":    round(acc, 4),
                     "f1_macro":    round(_f1_from_details(det)[2], 4),
                     "f1_weighted": round(_f1_from_details(det)[5], 4),
+                    "mean_time_per_sample_sec": round(mtime, 3),
                 }
-                for rank, (label, nc, nt, acc, ckpt_path, det) in enumerate(all_results, 1)
+                for rank, (label, nc, nt, acc, ckpt_path, det, mtime) in enumerate(all_results, 1)
             ],
             "best": {
                 "checkpoint":  all_results[0][0],
@@ -582,6 +593,7 @@ def main():
                 "accuracy":    round(all_results[0][3], 4),
                 "f1_macro":    round(_f1_from_details(all_results[0][5])[2], 4),
                 "f1_weighted": round(_f1_from_details(all_results[0][5])[5], 4),
+                "mean_time_per_sample_sec": round(all_results[0][6], 3),
             } if all_results else None,
         }
         os.makedirs(os.path.dirname(os.path.abspath(args.results_json)), exist_ok=True)
@@ -598,7 +610,7 @@ def main():
                 "correct", "prompt", "raw_generation",
             ])
             writer.writeheader()
-            for rank, (label, _, _, _, _, det) in enumerate(all_results, 1):
+            for rank, (label, _, _, _, _, det, _mt) in enumerate(all_results, 1):
                 for sample_idx, (pred, gt, correct, raw_gen, prompt) in zip(sample_indices, det):
                     writer.writerow({
                         "rank":           rank,
