@@ -36,10 +36,10 @@ CKPT=${CKPT:-}
 
 ## Auto-detect latest Stage 3 optB checkpoint if not set
 if [ -z "${CKPT:-}" ]; then
-    CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06b_stage3_grpo_optB \
+    CKPT=$(find /scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_06b_stage3_grpo_optB_anon \
         -maxdepth 1 -name "checkpoint-*" -type d 2>/dev/null | sort -V | tail -1)
     [ -n "$CKPT" ] && echo "Auto-detected CKPT: $CKPT" \
-        || echo "WARNING: could not auto-detect CKPT from train_06b_stage3_grpo_optB"
+        || echo "WARNING: could not auto-detect CKPT from train_06b_stage3_grpo_optB_anon"
 fi
 
 ## Split: val | test | both
