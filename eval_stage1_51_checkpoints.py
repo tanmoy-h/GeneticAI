@@ -323,8 +323,11 @@ def evaluate_checkpoint(
         full_text = row["text"]
         dna_seqs  = row["dna_sequences"]
 
+        # Cut the prompt just BEFORE <think> (i.e. at <|im_start|>assistant\n) so
+        # the model emits <think> itself — matches how it was trained and how the
+        # GRPO eval prompts, instead of handing it the opened thinking block.
         cut         = full_text.find(think_tag)
-        prompt_text = full_text[:cut + len(think_tag)] if cut != -1 else full_text
+        prompt_text = full_text[:cut] if cut != -1 else full_text
 
         batch = model.processor(
             text                = [prompt_text],
@@ -373,7 +376,7 @@ def evaluate_checkpoint(
             _second = generated.find(_tc, _first + len(_tc))
             if _second != -1:
                 generated = generated[:_second]
-        completion = "<think>\n" + generated
+        completion = generated   # model now emits its own <think>; don't double it
         pred       = extract_answer(generated)
         correct    = is_correct(pred, gt_answer)
         if correct:
