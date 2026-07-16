@@ -16,8 +16,9 @@
 ##
 ## What it does:
 ##   - copies the real train script to a temp file
-##   - shrinks it: num_generations 2, grad_accum 1, max_steps 2, eval_steps 1,
+##   - shrinks it: num_generations 2, grad_accum 2, max_steps 2, eval_steps 1,
 ##     save_steps 1, max_eval_samples 8   (one eval fires in ~2-3 min on 1 GPU)
+##     (grad_accum=2 keeps the GRPO generation batch divisible by num_generations)
 ##   - writes checkpoints to a throwaway OUTPUT_DIR, disables wandb
 ##   - hard-fails if any override did not apply (never runs the full config)
 ##
@@ -47,9 +48,15 @@ trap 'rm -f "$TMP"' EXIT
 
 ## Shrink the real script. Anchor each sed on the flag name so only the intended
 ## value changes; flexible whitespace so it survives reformatting of the source.
+##
+## NOTE on grad_accum=2: GRPO requires the generation batch
+## (per_device_train_batch_size * num_processes * gradient_accumulation_steps) to
+## be divisible by num_generations. With num_generations=2 on 1 GPU and
+## per_device=1, grad_accum MUST be 2 (1*1*2=2). grad_accum=1 -> 1, not divisible
+## by 2 -> TRL aborts at init (ChildFailedError from the accelerate launcher).
 sed -E \
     -e 's/--num_generations[[:space:]]+[0-9]+/--num_generations 2/' \
-    -e 's/--gradient_accumulation_steps[[:space:]]+[0-9]+/--gradient_accumulation_steps 1/' \
+    -e 's/--gradient_accumulation_steps[[:space:]]+[0-9]+/--gradient_accumulation_steps 2/' \
     -e 's/--max_steps[[:space:]]+-?[0-9]+/--max_steps 2/' \
     -e 's/--eval_steps[[:space:]]+\$SAVE_STEPS/--eval_steps 1/' \
     -e 's/--save_steps[[:space:]]+\$SAVE_STEPS/--save_steps 1/' \
@@ -61,7 +68,7 @@ sed -E \
 _fail=0
 for pat in \
     '--num_generations 2' \
-    '--gradient_accumulation_steps 1' \
+    '--gradient_accumulation_steps 2' \
     '--max_steps 2' \
     '--eval_steps 1' \
     '--save_steps 1' \
@@ -82,7 +89,7 @@ echo "======================================================================"
 echo " SMOKE TEST — Stage 3 GRPO eval monitor"
 echo "   Target script : $TARGET"
 echo "   Temp script   : $TMP"
-echo "   Overrides     : max_steps=2 eval_steps=1 max_eval_samples=8 num_gen=2 grad_accum=1"
+echo "   Overrides     : max_steps=2 eval_steps=1 max_eval_samples=8 num_gen=2 grad_accum=2"
 echo "   OUTPUT_DIR    : $OUTPUT_DIR   (throwaway — safe to delete)"
 echo "   wandb         : disabled"
 echo "   GPU           : $GPU"
