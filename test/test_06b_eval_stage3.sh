@@ -220,6 +220,21 @@ EVAL_ELAPSED=$(( SECONDS - EVAL_START ))
 EVAL_MIN=$(( EVAL_ELAPSED / 60 ))
 EVAL_SEC=$(( EVAL_ELAPSED % 60 ))
 
+## Fail loudly if the eval produced no metrics — otherwise the summary block
+## below reports a confusing "No such file" and hides the real crash.
+METRICS_JSON="${OUTPUT_DIR}/${OUTPUT_PREFIX}_metrics.json"
+if [ ! -f "$METRICS_JSON" ]; then
+    echo ""
+    echo "ERROR: evaluation did not write $METRICS_JSON  (after ${EVAL_MIN}m ${EVAL_SEC}s)."
+    echo "       eval_grpo_checkpoint.py crashed before saving results. The real error is"
+    echo "       in the traceback above (or in $LOG). Common causes:"
+    echo "         - no GPU / NVIDIA driver on this node (run on a GPU node: sbatch or srun --gres=gpu)"
+    echo "         - checkpoint missing files: ls -la \"$CKPT\""
+    echo "           (expect model weights + thinking_gate.pt + dna_injector.pt + theta_low.pt)"
+    echo "         - wrong --split for this dataset (SPLIT=$SPLIT), OOM, or STAGE2_DIR not found"
+    exit 1
+fi
+
 echo ""
 echo "=== Evaluation complete ==="
 echo "  Wall time      : ${EVAL_MIN}m ${EVAL_SEC}s  (${EVAL_ELAPSED}s total)"
