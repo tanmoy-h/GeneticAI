@@ -31,18 +31,31 @@ Two answer-matching rules (`is_correct`), reported side by side for Stage 3:
 
 ## Configuration + metrics
 
-| Model | DNA Fusion | LatentSp | Gate | HiRef OT | Acc (named) | Avg Time | F1 (named) | Acc (anon) | F1 (anon) |
-|---|---|---|---|---|---|---|---|---|---|
-| LLM-only | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — |
-| BioReason (LLM + DNA) | Linear proj. | ✗ | ✗ | ✗ | — | — | — | — | — |
-| Stage 1: CrossAttn SFT | CrossAttn | ✗ | ✗ | ✗ | — | — | — | — | — |
-| — + CLIP (ablated) | CrossAttn + CLIP | ✗ | ✗ | ✗ | — | — | — | — | — |
-| Stage 1.5.0: + LatentSp curriculum | CrossAttn | fixed θ | ✗ | ✗ | — | — | — | — | — |
-| Stage 1.5.1: + Gate training | CrossAttn | fixed θ | ✓ | ✗ | — | — | — | — | — |
-| GenoMorph: GRPO, fixed θ_low | CrossAttn | fixed θ | ✓ | ✓ | — | — | — | — | — |
-| **GenoMorph-B: learned θ_low** | CrossAttn | learned θ | ✓ | ✓ | — | — | — | — | — |
-| — w/o OT reward | CrossAttn | learned θ | ✓ | ✗ | — | — | — | — | — |
-| — w/o LatentSp | CrossAttn | ✗ | ✓ | ✓ | — | — | — | — | — |
+| Model | DNA Fusion | LatentSp | Latent@infer | Gate | HiRef OT | Acc (named) | Avg Time | F1 (named) | Acc (anon) | F1 (anon) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| LLM-only | ✗ | ✗ | — | ✗ | ✗ | — | — | — | — | — |
+| BioReason (LLM + DNA) | Linear proj. | ✗ | — | ✗ | ✗ | — | — | — | — | — |
+| Stage 1: CrossAttn SFT | CrossAttn | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — |
+| — + CLIP (ablated) | CrossAttn + CLIP | ✗ | ✗ | ✗ | ✗ | — | — | — | — | — |
+| Stage 1.5.0: + LatentSp curriculum | CrossAttn | fixed θ | ✗ | ✗ | ✗ | — | — | — | — | — |
+| Stage 1.5.1: + Gate training | CrossAttn | fixed θ | ✗ | ✓ | ✗ | — | — | — | — | — |
+| GenoMorph: GRPO, fixed θ_low | CrossAttn | fixed θ | ✓ | ✓ | ✓ | — | — | — | — | — |
+| **GenoMorph-B: learned θ_low** | CrossAttn | learned θ | ✓ | ✓ | ✓ | — | — | — | — | — |
+| — w/o OT reward | CrossAttn | learned θ | ✓ | ✓ | ✗ | — | — | — | — | — |
+| — w/o LatentSp | CrossAttn | ✗ | ✗ | ✓ | ✓ | — | — | — | — | — |
+
+Column meanings:
+- **LatentSp** — latent-space reasoning **trained into the model**: `fixed θ` =
+  fixed-threshold curriculum (Stages 1.5.0/1.5.1), `learned θ` = GRPO-learned
+  threshold (Stage 3), `✗` = never trained with the latent curriculum.
+- **Latent@infer** — whether latent reasoning steps **actually fire in the
+  reported eval**. The Stage 1.5.0/1.5.1 evals run **text-only** (latent tokens
+  banned, and no autonomous "when-to-fire" controller exists until Stage 3), so
+  latents don't contribute to those numbers *even though the curriculum is
+  trained in*. Stage 3 fires latents via `generate_with_hrpo_gate`. (`—` = model
+  has no latent capability at all.)
+- **Gate** — `ThinkingResidualGate` (+ `DNAHiddenInjector`); active in the 1.5.1
+  eval too (forward is patched even though latent tokens are banned).
 
 `Acc`/`F1` above are the **one-directional** score. For the four Stage 3 GRPO
 rows, also record the **bidirectional** score from the `_final` scripts (e.g. as
