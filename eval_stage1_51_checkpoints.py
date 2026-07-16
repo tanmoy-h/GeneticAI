@@ -277,7 +277,7 @@ def is_correct(pred: str, gt: str) -> bool:
     if not pred:
         return False
     p, g = pred.lower().strip(), gt.lower().strip()
-    return p in g or g in p
+    return g in p          # one-directional: ground truth must appear in prediction
 
 
 # ── Single-checkpoint evaluation ──────────────────────────────────────────────
