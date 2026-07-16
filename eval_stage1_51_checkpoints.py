@@ -103,9 +103,17 @@ def load_val_rows(args) -> List[dict]:
     else:
         from datasets import load_dataset
         ds = load_dataset(args.kegg_dataset, cache_dir=args.cache_dir)
+    split = getattr(args, "eval_split", "val")
+    split_names = ["val", "test"] if split == "both" else [split]
+    examples = []
+    for name in split_names:
+        if name in ds:
+            examples.extend(list(ds[name]))
+        else:
+            print(f"[eval] WARNING: split '{name}' not found in dataset; skipping.")
     rows = [_make_row(ex["question"], ex["reasoning"], ex["answer"],
-                      *_trunc(ex, trunc)) for ex in ds["val"]]
-    print(f"[eval] Val rows: {len(rows)}")
+                      *_trunc(ex, trunc)) for ex in examples]
+    print(f"[eval] Eval rows ({'+'.join(split_names)}): {len(rows)}")
     return rows
 
 
@@ -694,6 +702,10 @@ def parse_args():
                    help="Precomputed DNA embeddings .pt (strongly recommended)")
     p.add_argument("--n_samples",             type=int, default=50,
                    help="Val examples per checkpoint (same samples for all)")
+    p.add_argument("--eval_split",            default="val",
+                   choices=["val", "test", "both"],
+                   help="Which held-out split to evaluate. 'both' = val+test "
+                        "(use for the anon re-split, where val=144/test=146 -> 290).")
     p.add_argument("--max_new_tokens",        type=int, default=800)
     p.add_argument("--seed",                  type=int, default=42)
     p.add_argument("--text_model_name",       default="Qwen/Qwen3-1.7B")

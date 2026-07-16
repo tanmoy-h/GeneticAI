@@ -33,7 +33,8 @@ _S15_CKPT_DIR=/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_03b_stage1_50_ca
 _PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 GPUS=${GPUS:-0}
-N_SAMPLES=${N_SAMPLES:-290}   # caps at val-set size; use a big number for "all"
+N_SAMPLES=${N_SAMPLES:-290}   # caps at split size; use a big number for "all"
+EVAL_SPLIT=${EVAL_SPLIT:-val}  # named HF val=290; set 'both' to add test split
 SEED=${SEED:-42}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 _TS=$(date +%Y%m%d_%H%M%S)
@@ -131,7 +132,7 @@ echo "Best 1.51 ckpt: $BEST_CKPT  (label=$LABEL -> iso=$ISO_LABEL)"
 echo "Base ckpt:      $STAGE1_CKPT"
 echo "Isolated dir:   $ISO_DIR"
 echo "GPUs:           $GPUS"
-echo "N samples:      $N_SAMPLES   Seed: $SEED"
+echo "N samples:      $N_SAMPLES   Split: $EVAL_SPLIT   Seed: $SEED"
 echo "Results JSON:   $RESULTS_JSON"
 nvidia-smi
 
@@ -157,6 +158,7 @@ stdbuf -oL -eL python eval_stage1_51_checkpoints.py \
     $DNA_CACHE_ARG \
     --gpus                   "$GPUS" \
     --n_samples              $N_SAMPLES \
+    --eval_split             $EVAL_SPLIT \
     --max_new_tokens         $MAX_NEW_TOKENS \
     --seed                   $SEED \
     --cache_dir              "$CACHE_DIR" \
