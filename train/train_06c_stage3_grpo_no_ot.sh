@@ -194,7 +194,7 @@ args=(
     --metric_for_best_model  correctness
     --greater_is_better      True
     --per_device_eval_batch_size 1
-    --max_eval_samples       50
+    --max_eval_samples       290
     --logging_steps          10
     --report_to              wandb
     --bf16                   True

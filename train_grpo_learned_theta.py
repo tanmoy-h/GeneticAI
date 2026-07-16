@@ -743,6 +743,21 @@ def main(script_args, training_args, model_args):
     reward_funcs = [_registry[f] for f in script_args.reward_funcs]
     print(f"[OptB] Reward functions: {script_args.reward_funcs}")
 
+    # Eval-monitor dataset: val + test (290) so eval_correctness tracks the full
+    # held-out number instead of a val-only slice. Falls back to val if there is
+    # no test split. NOTE: with KeepBestN this means the test split influences
+    # checkpoint selection (mild leakage) — see train script comment.
+    if training_args.eval_strategy != "no":
+        from datasets import concatenate_datasets
+        if "test" in data:
+            _eval_ds = concatenate_datasets([data["val"], data["test"]])
+            print(f"[OptB] Eval monitor: val+test = {len(_eval_ds)} records")
+        else:
+            _eval_ds = data["val"]
+            print(f"[OptB] Eval monitor: val = {len(_eval_ds)} records (no test split)")
+    else:
+        _eval_ds = None
+
     trainer = ThinkingResidualGRPOTrainer_OptB(
         # OptB-specific
         latentSp_ctrl    = latentSp_ctrl,
@@ -759,7 +774,7 @@ def main(script_args, training_args, model_args):
         args             = training_args,
         dna_module       = NucleotideDNAModule(),
         train_dataset    = data["train"],
-        eval_dataset     = data["val"] if training_args.eval_strategy != "no" else None,
+        eval_dataset     = _eval_ds,
         peft_config      = None,
         callbacks        = [
             SaveWithPyTorchCallback(),
