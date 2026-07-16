@@ -33,7 +33,7 @@ _PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 GPUS=${GPUS:-0}
 N_SAMPLES=${N_SAMPLES:-290}   # caps at split size; use a big number for "all"
-EVAL_SPLIT=${EVAL_SPLIT:-val}  # named HF val=290; set 'both' to add test split
+EVAL_SPLIT=${EVAL_SPLIT:-both}  # HF wanglab/kegg re-split too: val=144, test=146 -> both=290
 SEED=${SEED:-42}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 _TS=$(date +%Y%m%d_%H%M%S)
