@@ -42,8 +42,16 @@ if [ ! -f "$TARGET" ]; then
     exit 1
 fi
 
-mkdir -p train/logs tmp
-TMP=$(mktemp tmp/smoke_$(basename "$TARGET" .sh)_XXXXXX.sh)
+mkdir -p train/logs
+## Create the temp copy ALONGSIDE the target script (same directory), NOT in
+## tmp/. The train scripts derive _PROJECT_DIR and their cd-to-repo-root from
+## $0's location ("$(dirname "$0")/.." for named, "/../.." for anon). A copy run
+## from tmp/ breaks that relative resolution for the anon script (two levels up
+## from tmp/ overshoots the repo root), so its priority-3 STAGE1_CKPT lookup
+## silently misses and falls back to best/model.pt. Same dir as the target ->
+## identical $0 depth -> correct resolution.
+_TDIR=$(dirname "$TARGET")
+TMP=$(mktemp "$_TDIR/smoke_$(basename "$TARGET" .sh)_XXXXXX.sh")
 trap 'rm -f "$TMP"' EXIT
 
 ## Shrink the real script. Anchor each sed on the flag name so only the intended
