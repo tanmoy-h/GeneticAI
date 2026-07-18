@@ -493,19 +493,49 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
         self.theta_low_lr     = theta_low_lr
         self.theta_low_weight = theta_low_weight
 
-        # theta_low_param lives outside the DDP-wrapped model. Without sync,
-        # each rank would update it from its own micro-batch and drift apart
-        # over thousands of steps. Hook averages the grad across ranks so the
-        # parameter stays in lock-step.
-        self.latentSp_ctrl.theta_low_param.register_hook(self._sync_theta_grad)
+        # theta_low_param lives outside the DDP-wrapped model, so DDP does not
+        # sync its gradient — we must do it ourselves. The previous approach (an
+        # autograd hook on the param) only fired on steps where theta_loss was
+        # computed, i.e. where latents fired. On a step where one rank fired
+        # latents and another did not (e.g. a degenerate / no-latent batch), the
+        # hook ran the all_reduce on ONLY one rank -> NCCL collective desync ->
+        # deadlock. We now sync explicitly and UNCONDITIONALLY in training_step()
+        # so every rank always issues the same collective. See _sync_theta_low_grad.
 
-    @staticmethod
-    def _sync_theta_grad(grad: torch.Tensor) -> torch.Tensor:
+    def training_step(self, *args, **kwargs):
+        loss = super().training_step(*args, **kwargs)
+        # Sync only at the accumulation boundary (when the optimizer will step),
+        # but ALWAYS on every rank there — regardless of whether this rank fired
+        # any latents — so the collective count can never diverge across ranks.
+        if self.accelerator.sync_gradients:
+            self._sync_theta_low_grad()
+        return loss
+
+    def _sync_theta_low_grad(self):
+        """Average theta_low_param.grad across ranks, unconditionally.
+
+        Runs on every rank at every optimizer step, even when this rank fired no
+        latents (it then contributes a zero grad), so the all_reduce count never
+        diverges and NCCL can't deadlock. The average is count-weighted — taken
+        over only the ranks that actually produced a grad — so the REINFORCE
+        update magnitude is preserved and theta_low_param stays in lock-step.
+        """
         import torch.distributed as dist
-        if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
-            dist.all_reduce(grad, op=dist.ReduceOp.SUM)
-            grad.div_(dist.get_world_size())
-        return grad
+        if not (dist.is_available() and dist.is_initialized()
+                and dist.get_world_size() > 1):
+            return
+        param    = self.latentSp_ctrl.theta_low_param
+        had_grad = param.grad is not None
+        grad     = param.grad if had_grad else torch.zeros_like(param)
+        # Both collectives fire on every rank -> no desync.
+        dist.all_reduce(grad, op=dist.ReduceOp.SUM)
+        count = torch.tensor(1.0 if had_grad else 0.0, device=grad.device)
+        dist.all_reduce(count, op=dist.ReduceOp.SUM)
+        n = count.item()
+        if n > 0:
+            grad.div_(n)          # mean over the ranks that actually fired
+            param.grad = grad     # no-op reassignment when it was already param.grad
+        # n == 0: no rank fired this step; leave param.grad as-is (None on all ranks)
 
     def create_optimizer(self):
         """Add theta_low_param as a separate AdamW param group."""
