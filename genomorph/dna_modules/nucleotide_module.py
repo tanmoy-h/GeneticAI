@@ -208,6 +208,35 @@ class NucleotideDNAModule(DNABaseModule):
         return rewards
 
     @staticmethod
+    def length_penalty_reward_func(completions, **kwargs) -> List[float]:
+        """Penalise long TOTAL completions (reasoning + latents), not just the answer.
+
+        completion_quality/concise only score the extracted answer length; nothing
+        bounds the reasoning/latent bloat that drives inference time. This adds a
+        smooth penalty on the full completion's word count:
+            0.0        for n <= FREE words   (a normal chain-of-thought is free)
+            0 .. -0.5  linearly between FREE and FLOOR
+            -0.5       for n >= FLOOR words
+        FREE/FLOOR are in WORDS. Run 055211 sat at ~500 completion tokens
+        (~375 words) with time regressing, so FREE=250 actively rewards trimming
+        while still leaving room for genuine reasoning. Tune if the observed
+        completions/mean_length shifts materially.
+        """
+        FREE  = 250
+        FLOOR = 500
+        rewards = []
+        for comp in completions:
+            text = comp[0]["content"]
+            n = len(text.split())
+            if n <= FREE:
+                rewards.append(0.0)
+            elif n >= FLOOR:
+                rewards.append(-0.5)
+            else:
+                rewards.append(-0.5 * (n - FREE) / (FLOOR - FREE))
+        return rewards
+
+    @staticmethod
     def reasoning_quality_reward_func(completions, **kwargs) -> List[float]:
         """Merges diversity + non_degenerate.
         Hard -0.5 for: repetition loops (same sentence ≥3×), or < 15 unique thinking words.

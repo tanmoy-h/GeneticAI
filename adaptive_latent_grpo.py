@@ -254,6 +254,7 @@ reward_funcs_registry = {
     "completion_quality": NucleotideDNAModule.completion_quality_reward_func,
     "reasoning_quality":  NucleotideDNAModule.reasoning_quality_reward_func,
     "latent_format":      NucleotideDNAModule.latent_format_reward_func,
+    "length_penalty":     NucleotideDNAModule.length_penalty_reward_func,  # total-completion brevity (time lever)
     # Legacy (kept for checkpoint compat / older reward_funcs lists)
     "xmlcount":           NucleotideDNAModule.xmlcount_reward_func,
     "soft_format":        NucleotideDNAModule.soft_format_reward_func,

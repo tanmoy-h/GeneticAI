@@ -171,16 +171,18 @@ args=(
     ## LatentSp — learnable theta_low (Option B)
     ## theta_low_init: starting value; will be learned via REINFORCE after warmup
     ## theta_low_lr:   dedicated LR for theta_low_param (~20x base LR)
-    ## theta_low_weight: REINFORCE loss scale (0.1 → ~10% of total loss)
+    ## theta_low_weight: REINFORCE loss scale (0.05 → ~5% of total loss; lowered
+    ##                    from 0.1 so the learned threshold settles instead of
+    ##                    climbing to ~0.97 and inflating latent firing/time)
     ## theta_low_alpha: sigmoid temperature (keep fixed)
     --latentSp_theta_low        1.0
     --latentSp_theta_high       3.0
-    --latentSp_max_consec       3
+    --latentSp_max_consec       2
     --latent_lookahead_k        3
     --latentSp_warmup_steps     400
     --latentSp_ramp_steps       400
     --theta_low_lr           1e-4
-    --theta_low_weight       0.1
+    --theta_low_weight       0.05
     --theta_low_alpha        5.0
 
     ## GRPO
@@ -189,10 +191,15 @@ args=(
     --temperature            0.7
     --top_p                  0.95
     --top_k                  50
-    --beta                   0.05
+    --beta                   0.15
     --epsilon                0.1
     --max_grad_norm          0.1
-    --reward_funcs           format correctness completion_quality reasoning_quality latent_format ot_distance latent_usage
+    ## Reward shaping: correctness DOMINATES (weight 2.0 → max +6.0); all shaping
+    ## terms are gentle nudges (≤0.5) so a correct answer always beats style/brevity
+    ## points. length_penalty is the total-completion time lever. Weights MUST stay
+    ## aligned 1:1 with reward_funcs order (trainer errors otherwise).
+    --reward_funcs           format correctness completion_quality reasoning_quality latent_format ot_distance latent_usage length_penalty
+    --reward_weights         0.5    2.0         0.5                0.3               0.5           0.5         0.5          0.5
     --manifold_weight        0.01
     --max_clip_loss_weight   0.0
 
