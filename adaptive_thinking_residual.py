@@ -587,8 +587,13 @@ class ThinkingResidualGRPOTrainer(DNALLMGRPOTrainer):
 
         loss = loss + self.manifold_weight * l_manifold
         mode = "train" if model.training else "eval"
+        # Log the LOCAL value — NO gather. gather_for_metrics is a collective,
+        # and this line is only reached when l_manifold is not None (the branch
+        # above returns early otherwise), so it can fire on one rank and be
+        # skipped on another -> NCCL stream desync -> deadlock. Metrics don't
+        # need a cross-rank gather.
         self._metrics[mode].setdefault("manifold_loss", []).append(
-            self.accelerator.gather_for_metrics(l_manifold.detach()).mean().item()
+            l_manifold.detach().item()
         )
         return loss
 

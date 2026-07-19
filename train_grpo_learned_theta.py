@@ -582,8 +582,15 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
                     # device just in case.
                     loss = loss + self.theta_low_weight * theta_loss.to(loss.device)
                     mode = "train" if model.training else "eval"
+                    # Log the LOCAL value — NO gather. gather_for_metrics is a
+                    # collective, and this line sits inside the data-dependent
+                    # `if decisions ...` branch, so it fires only on ranks that
+                    # had latent decisions. When one rank collapses to a
+                    # no-latent / anomalous batch it skips this while others run
+                    # it -> NCCL stream desync -> deadlock (seen at step ~1805).
+                    # Metrics don't need a cross-rank gather.
                     self._metrics[mode].setdefault("theta_low_loss", []).append(
-                        self.accelerator.gather_for_metrics(theta_loss.detach()).mean().item()
+                        theta_loss.detach().item()
                     )
                     self._metrics[mode].setdefault("theta_low_param", []).append(
                         self.latentSp_ctrl.theta_low_param.detach().item()
