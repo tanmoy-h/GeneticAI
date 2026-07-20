@@ -427,10 +427,6 @@ def _make_dual_mode_generate_w9(
         _MAX_LATENT_PER_STEP = latentSp_ctrl.max_consecutive
         _at_step_boundary   = False             # True after emitting "Step N:" colon
         _LOOKAHEAD_K        = max(1, lookahead_k)
-        # Cap reasoning length: once "Step N:" reaches this, force conclusion so the
-        # model can't loop step-after-step to the token budget (SFT traces are ~12
-        # steps; EOS is masked until </think>, so an un-closing model runs on).
-        _MAX_REASONING_STEPS = 25
 
         # Stop on second </think>: first is legitimate end-of-reasoning,
         # second means a repetition loop — treat it as EOS.
@@ -456,17 +452,17 @@ def _make_dual_mode_generate_w9(
             argmax_tok    = int(logits[:, -1, :].argmax(dim=-1)[0].item())
             is_structural = argmax_tok in _structural_ids
 
-            # ── Reasoning-length cap ──────────────────────────────────────────
-            # At a step boundary past _MAX_REASONING_STEPS with </think> not yet
-            # emitted, force "\n</think>\nAnswer:" so the model concludes instead of
-            # looping latent steps to the token budget. Deterministic force-inject
-            # (mirrors the "Step N+1:" header injection); then normal sampling emits
-            # the answer and terminates (EOS un-masks once </think> is present).
-            if (_at_step_boundary and _think_close_count == 0
-                    and _current_step_num >= _MAX_REASONING_STEPS):
+            # ── Double-think guard ────────────────────────────────────────────
+            # The model closed </think> on its own but then began a NEW "Step N:"
+            # block instead of answering (GRPO drift). Left alone it loops a second
+            # reasoning block until the 2nd </think> cutoff — ending with NO Answer,
+            # so extraction is empty and correctness collapses. Force "\nAnswer:"
+            # (mirrors the reasoning-cap conclusion above) so it emits the disease
+            # name and terminates. Only fires post-</think> before any Answer line.
+            if (_at_step_boundary and _think_close_count >= 1 and not _answer_started):
                 _at_step_boundary = False
                 _step_state       = "normal"
-                _concl_ids = _tok.encode("\n</think>\nAnswer:", add_special_tokens=False)
+                _concl_ids = _tok.encode("\nAnswer:", add_special_tokens=False)
                 for _cid in _concl_ids:
                     _c_tok = torch.full((B, 1), _cid, dtype=torch.long, device=device)
                     _c_emb = embed_layer(_c_tok).to(inputs_embeds)
@@ -491,12 +487,12 @@ def _make_dual_mode_generate_w9(
                     gen_meta.append({"step": step, "is_latent": False,
                                      "entropy": 0.0, "dna_injected": False})
                 logits = self.text_model.lm_head(h_last)
-                _think_close_count = 1                     # </think> now emitted
-                eos_ids.update(_think_close_ids)           # a 2nd </think> -> EOS
-                _answer_started    = True                  # answer line has begun
+                _answer_started = True
                 continue
 
-            if _at_step_boundary and not is_structural:
+            # Latents only fire during the reasoning block (before </think>); after
+            # it the model must answer, never re-enter a latent step.
+            if _at_step_boundary and not is_structural and _think_close_count == 0:
                 _at_step_boundary = False
 
                 # Save state before lookahead so we can restore if going latent.

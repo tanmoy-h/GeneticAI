@@ -198,7 +198,7 @@ args=(
     ## terms are gentle nudges (≤0.5) so a correct answer always beats style/brevity
     ## points. length_penalty is the total-completion time lever. Weights MUST stay
     ## aligned 1:1 with reward_funcs order (trainer errors otherwise).
-    --reward_funcs           format correctness completion_quality reasoning_quality latent_format ot_distance latent_usage length_penalty
+    --reward_funcs           format correctness completion_quality reasoning_quality latent_format ot_distance latent_usage conciseness
     --reward_weights         0.5    2.0         0.5                0.3               0.5           0.5         0.75         0.5
     --manifold_weight        0.01
     --max_clip_loss_weight   0.0

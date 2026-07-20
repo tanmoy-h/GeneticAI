@@ -208,32 +208,45 @@ class NucleotideDNAModule(DNABaseModule):
         return rewards
 
     @staticmethod
-    def length_penalty_reward_func(completions, **kwargs) -> List[float]:
-        """Penalise long TOTAL completions (reasoning + latents), not just the answer.
+    def conciseness_reward_func(completions, **kwargs) -> List[float]:
+        """Single conciseness signal merging reasoning-step count and total length.
 
-        completion_quality/concise only score the extracted answer length; nothing
-        bounds the reasoning/latent bloat that drives inference time. This adds a
-        smooth penalty on the full completion's word count:
-            0.0        for n <= FREE words   (a normal chain-of-thought is free)
-            0 .. -0.5  linearly between FREE and FLOOR
-            -0.5       for n >= FLOOR words
-        FREE/FLOOR are in WORDS. Run 055211 sat at ~500 completion tokens
-        (~375 words) with time regressing, so FREE=250 actively rewards trimming
-        while still leaving room for genuine reasoning. Tune if the observed
-        completions/mean_length shifts materially.
+        Step term — count of 'Step N:' headers before </think> (reasoning depth):
+            < 15 steps  → +0.5   (concise)
+            15-20 steps →  0.0   (acceptable band)
+            > 20 steps  → -0.1 per step past 20   (over-thinking; the pattern that
+                          preceded the double-think collapse)
+        Length term — total completion words (penalty only; proxy for gen time):
+            <= 250 words → 0.0  |  250-500 → ramp to -0.5  |  >= 500 → -0.5
+        Combined = step_term + length_term, clamped to [-0.5, +0.5]. Tight, concise
+        completions earn up to +0.5; bloated / over-thinking ones are driven to -0.5.
         """
-        FREE  = 250
-        FLOOR = 500
+        FREE, FLOOR = 250, 500
         rewards = []
         for comp in completions:
             text = comp[0]["content"]
-            n = len(text.split())
-            if n <= FREE:
-                rewards.append(0.0)
-            elif n >= FLOOR:
-                rewards.append(-0.5)
+
+            # Step term (reasoning block only, before the first </think>)
+            end     = text.find("</think>")
+            region  = text[:end] if end != -1 else text
+            n_steps = len(re.findall(r"Step\s+\d+\s*:", region))
+            if n_steps < 15:
+                step_r = 0.5
+            elif n_steps <= 20:
+                step_r = 0.0
             else:
-                rewards.append(-0.5 * (n - FREE) / (FLOOR - FREE))
+                step_r = -0.1 * (n_steps - 20)
+
+            # Length term (total words, penalty only)
+            n_words = len(text.split())
+            if n_words <= FREE:
+                len_r = 0.0
+            elif n_words >= FLOOR:
+                len_r = -0.5
+            else:
+                len_r = -0.5 * (n_words - FREE) / (FLOOR - FREE)
+
+            rewards.append(max(-0.5, min(0.5, step_r + len_r)))
         return rewards
 
     @staticmethod
