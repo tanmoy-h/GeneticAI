@@ -208,7 +208,7 @@ args=(
     --gradient_accumulation_steps 4
     --num_train_epochs       3
     --max_steps              -1
-    --learning_rate          2e-6
+    --learning_rate          1e-6
     --lora_r                 16
     --lora_alpha             32
     --eval_strategy          steps
