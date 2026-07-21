@@ -105,6 +105,10 @@ def parse_args():
                    help="Match training validation: GRPOConfig default is 1.0.")
     p.add_argument("--temperature",        type=float, default=0.0,
                    help="0 = greedy (default for eval).")
+    p.add_argument("--self_adaptive",      action="store_true",
+                   help="Self-adaptive latents: the model emits <start-latent> itself; "
+                        "skips the entropy look-ahead / controller in generation "
+                        "(fast, ~native speed). Use to probe an RFT/self-adaptive ckpt.")
 
     # Model architecture — must match training
     p.add_argument("--text_model_name",       default="Qwen/Qwen3-1.7B")
@@ -355,6 +359,7 @@ def generate_answer(model, sample, args, device):
         "max_new_tokens":     args.max_new_tokens,
         "do_sample":          False,
         "repetition_penalty": args.repetition_penalty,
+        "self_adaptive":      getattr(args, "self_adaptive", False),
     }
 
     out = model.generate_with_hrpo_gate(
@@ -599,9 +604,13 @@ def main():
             # never correct (guards against "" ⊆ gt being trivially True).
             is_correct = bool(_pred) and (gt in _pred or _pred in gt)
 
-            # Latent / injection stats from gen_meta
+            # Latent / injection stats. n_latent_steps counts CONTROLLER decisions
+            # (0 in self-adaptive mode, where the controller is skipped);
+            # n_latent_emitted counts <start-latent> the MODEL wrote itself — the
+            # signal that self-adaptive latents are actually firing.
             n_latent   = sum(1 for m in gen_meta if m.get("is_latent", False))
             n_injected = sum(1 for m in gen_meta if m.get("dna_injected", False))
+            n_latent_emitted = text.count("<start-latent>")
             gen_len    = len(gen_meta)
 
             mark = "+" if is_correct else "-"
@@ -609,7 +618,7 @@ def main():
                 f"[rank{rank} {i+1:4d}/{len(my_records)}] [{mark}]  "
                 f"gt={repr(gt):<30s}  "
                 f"pred={repr(extracted[:50]):<52s}  "
-                f"latent={n_latent}  inject={n_injected}  "
+                f"latent={n_latent}/{n_latent_emitted}  inject={n_injected}  "
                 f"time={gen_time:.2f}s  tok={gen_len}",
                 flush=True,
             )
@@ -621,6 +630,7 @@ def main():
                 "predicted_answer":  extracted.lower(),
                 "is_correct":        is_correct,
                 "n_latent_steps":    n_latent,
+                "n_latent_emitted":  n_latent_emitted,
                 "n_dna_injected":    n_injected,
                 "gen_length_tokens": gen_len,
                 "gen_time_sec":      round(gen_time, 3),

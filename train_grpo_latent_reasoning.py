@@ -400,6 +400,11 @@ def _make_dual_mode_generate_w9(
         if _im_end_id not in (None, self.processor.tokenizer.unk_token_id):
             eos_ids.add(int(_im_end_id))
         actual_max    = gen_kwargs.get("max_new_tokens", max_new_tokens)
+        # Self-adaptive mode: the MODEL decides its own latents (it emits
+        # <start-latent> itself). Skip the entropy look-ahead / controller entirely and
+        # let the latent tokens through the sampler. 1 forward/token — no deepcopy, no
+        # tentative forwards — so it runs at ~native speed while staying truly adaptive.
+        _self_adaptive = bool(gen_kwargs.get("self_adaptive", False))
 
         generated:   List[torch.Tensor] = []  # [B,1] token tensors
         gen_meta:    List[dict]         = []  # per-step metadata
@@ -492,7 +497,10 @@ def _make_dual_mode_generate_w9(
 
             # Latents only fire during the reasoning block (before </think>); after
             # it the model must answer, never re-enter a latent step.
-            if _at_step_boundary and not is_structural and _think_close_count == 0:
+            # Skipped entirely in self-adaptive mode — the model self-emits latents, so
+            # there is no controller look-ahead here (this is the expensive block).
+            if _at_step_boundary and not is_structural and _think_close_count == 0 \
+                    and not _self_adaptive:
                 _at_step_boundary = False
 
                 # Save state before lookahead so we can restore if going latent.
@@ -686,10 +694,12 @@ def _make_dual_mode_generate_w9(
                     scaled = logits[:, -1, :].float() / temperature
 
                     # Mask latent special tokens — model must never self-generate
-                    # these; latent steps are inserted only by the LatentSp criterion
-                    for _lid in (latent_start_id, latent_end_id, _latent_pad_id):
-                        if 0 <= _lid < scaled.size(-1):
-                            scaled[:, _lid] = float("-inf")
+                    # these; latent steps are inserted only by the LatentSp criterion.
+                    # In self-adaptive mode the model DOES emit them, so leave unmasked.
+                    if not _self_adaptive:
+                        for _lid in (latent_start_id, latent_end_id, _latent_pad_id):
+                            if 0 <= _lid < scaled.size(-1):
+                                scaled[:, _lid] = float("-inf")
 
                     # Suppress EOS/<|im_end|> until </think> is emitted — the model
                     # must produce reasoning + Answer before it can terminate.  The
@@ -759,11 +769,13 @@ def _make_dual_mode_generate_w9(
                         torch.softmax(scaled, dim=-1), num_samples=1
                     )  # [B, 1]
                 else:
-                    # Greedy: mask latent tokens and Answer: loop before argmax
+                    # Greedy: mask latent tokens and Answer: loop before argmax.
+                    # Self-adaptive mode leaves latent tokens unmasked (model emits them).
                     _greedy_logits = logits[:, -1, :].clone()
-                    for _lid in (latent_start_id, latent_end_id, _latent_pad_id):
-                        if 0 <= _lid < _greedy_logits.size(-1):
-                            _greedy_logits[:, _lid] = float("-inf")
+                    if not _self_adaptive:
+                        for _lid in (latent_start_id, latent_end_id, _latent_pad_id):
+                            if 0 <= _lid < _greedy_logits.size(-1):
+                                _greedy_logits[:, _lid] = float("-inf")
                     if _answer_started:
                         for _tid in _answer_ids:
                             if 0 <= _tid < _greedy_logits.size(-1):
