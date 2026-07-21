@@ -363,6 +363,54 @@ def inject_latent_markers(
     return new_ids, labels_t, weights_t
 
 
+def label_self_adaptive_latents(
+    input_ids:       List[int],
+    prompt_end:      int,
+    pad_id:          int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Label an RFT trace that ALREADY contains latent markers, teacher-forcing the
+    ENTIRE completion — reasoning text, <start-latent>/<latent>/<end-latent>, and the
+    Answer line — so the model learns to EMIT the latent block itself (self-adaptive).
+
+    Contrast with inject_latent_markers, which (a) INSERTS latent markers by an entropy
+    curriculum and (b) masks the <latent> content to -100. Here the markers are already
+    present (the GRPO controller placed them when the trace was sampled), and we do NOT
+    mask them — the model must learn to predict <start-latent>, the <latent> block, and
+    <end-latent> at the right positions. Only the user prompt and trailing padding are
+    masked.
+
+    Boundary/latent weight is kept at BOUNDARY_LOSS_SCALE (=1.0). Do NOT boost it — 4x
+    previously caused <start-latent> hallucination at inference (see module note at
+    BOUNDARY_LOSS_SCALE). Correct placement is taught by the DATA (only correct+short
+    traces survive the RFT filter), not by up-weighting the tokens.
+
+    Returns (input_ids_tensor, labels, loss_weights):
+      - prompt tokens (< prompt_end)          -> label -100, weight 0
+      - trailing padding (after real content) -> label -100, weight 0
+      - everything else                       -> teacher-forced, weight 1.0
+    """
+    ids = list(input_ids)
+    T   = len(ids)
+    labels       = list(ids)
+    loss_weights = [1.0] * T
+
+    # Mask the user prompt (assistant section from prompt_end onward gets loss).
+    for t in range(min(prompt_end, T)):
+        labels[t]       = -100
+        loss_weights[t] = 0.0
+
+    # Mask trailing padding by POSITION (pad_id == <|im_end|>, so an id-compare would
+    # also mask the answer's genuine terminator). Keep everything up to real_content_end.
+    content_end = real_content_end(list(input_ids), pad_id)
+    for t in range(content_end, T):
+        labels[t]       = -100
+        loss_weights[t] = 0.0
+
+    return (torch.tensor(ids,          dtype=torch.long),
+            torch.tensor(labels,       dtype=torch.long),
+            torch.tensor(loss_weights, dtype=torch.float))
+
+
 # ── Weighted SFT loss ─────────────────────────────────────────────────────────
 
 def weighted_sft_loss(
