@@ -94,7 +94,7 @@ def parse_args():
                    help="HuggingFace dataset name (default: wanglab/kegg).")
     p.add_argument("--kegg_csv",      default=None,
                    help="Local anonymized CSV. Overrides --dataset_name when set.")
-    p.add_argument("--split",         default="test", choices=["val", "test", "both"])
+    p.add_argument("--split",         default="test", choices=["val", "test", "both", "train"])
     p.add_argument("--n_samples",     type=int, default=-1,
                    help="Max samples to evaluate.  -1 = all.")
     p.add_argument("--seed",          type=int, default=42)
@@ -109,6 +109,14 @@ def parse_args():
                    help="Self-adaptive latents: the model emits <start-latent> itself; "
                         "skips the entropy look-ahead / controller in generation "
                         "(fast, ~native speed). Use to probe an RFT/self-adaptive ckpt.")
+    p.add_argument("--top_p",              type=float, default=0.95,
+                   help="Nucleus sampling p (only used when --temperature > 0).")
+    p.add_argument("--top_k",              type=int,   default=50,
+                   help="Top-k sampling (only used when --temperature > 0).")
+    p.add_argument("--sample_passes",      type=int,   default=1,
+                   help="RFT sampling: generate this many completions per sample "
+                        "(use with --temperature > 0). Each pass is emitted as its own "
+                        "record (same index) for downstream filtering.")
 
     # Model architecture — must match training
     p.add_argument("--text_model_name",       default="Qwen/Qwen3-1.7B")
@@ -355,9 +363,16 @@ def generate_answer(model, sample, args, device):
             "attention_mask": dna_tokenized["attention_mask"].to(device),
         })
 
+    # Thread temperature so --temperature is actually honored: 0.0 -> greedy
+    # (do_sample False), > 0 -> sampling with top_p/top_k. Previously temperature
+    # was never passed, so the generation loop fell back to 1.0 and sampled.
+    _temp = float(getattr(args, "temperature", 0.0))
     gen_kwargs = {
         "max_new_tokens":     args.max_new_tokens,
-        "do_sample":          False,
+        "do_sample":          _temp > 0.0,
+        "temperature":        _temp,
+        "top_p":              getattr(args, "top_p", 0.95),
+        "top_k":              getattr(args, "top_k", 50),
         "repetition_penalty": args.repetition_penalty,
         "self_adaptive":      getattr(args, "self_adaptive", False),
     }
@@ -592,50 +607,56 @@ def main():
     for i, sample in enumerate(my_records):
         global_idx = rank + i * world_size
         try:
-            t0 = time.perf_counter()
-            text, gen_meta = generate_answer(model, sample, args, device)
-            gen_time = time.perf_counter() - t0
+            # RFT sampling: N completions per sample (each its own record, same index).
+            # sample_passes=1 (default) preserves the original single-pass eval behavior.
+            _n_passes = max(1, getattr(args, "sample_passes", 1))
+            for _pass in range(_n_passes):
+                t0 = time.perf_counter()
+                text, gen_meta = generate_answer(model, sample, args, device)
+                gen_time = time.perf_counter() - t0
 
-            extracted  = NucleotideDNAModule._extract_xml_answer(text)
-            gt         = sample.get("answer", "").strip().lower()
-            _pred      = extracted.lower().strip()
-            # Bidirectional substring match (mirrors eval_stage1_5_checkpoints.py
-            # is_correct): count correct if gt ⊆ pred OR pred ⊆ gt. Empty pred is
-            # never correct (guards against "" ⊆ gt being trivially True).
-            is_correct = bool(_pred) and (gt in _pred or _pred in gt)
+                extracted  = NucleotideDNAModule._extract_xml_answer(text)
+                gt         = sample.get("answer", "").strip().lower()
+                _pred      = extracted.lower().strip()
+                # Bidirectional substring match (mirrors eval_stage1_5_checkpoints.py
+                # is_correct): correct if gt ⊆ pred OR pred ⊆ gt. Empty pred is never
+                # correct (guards against "" ⊆ gt being trivially True).
+                is_correct = bool(_pred) and (gt in _pred or _pred in gt)
 
-            # Latent / injection stats. n_latent_steps counts CONTROLLER decisions
-            # (0 in self-adaptive mode, where the controller is skipped);
-            # n_latent_emitted counts <start-latent> the MODEL wrote itself — the
-            # signal that self-adaptive latents are actually firing.
-            n_latent   = sum(1 for m in gen_meta if m.get("is_latent", False))
-            n_injected = sum(1 for m in gen_meta if m.get("dna_injected", False))
-            n_latent_emitted = text.count("<start-latent>")
-            gen_len    = len(gen_meta)
+                # Latent / injection stats. n_latent_steps counts CONTROLLER decisions
+                # (0 in self-adaptive mode, where the controller is skipped);
+                # n_latent_emitted counts <start-latent> the MODEL wrote itself — the
+                # signal that self-adaptive latents are actually firing.
+                n_latent   = sum(1 for m in gen_meta if m.get("is_latent", False))
+                n_injected = sum(1 for m in gen_meta if m.get("dna_injected", False))
+                n_latent_emitted = text.count("<start-latent>")
+                gen_len    = len(gen_meta)
 
-            mark = "+" if is_correct else "-"
-            print(
-                f"[rank{rank} {i+1:4d}/{len(my_records)}] [{mark}]  "
-                f"gt={repr(gt):<30s}  "
-                f"pred={repr(extracted[:50]):<52s}  "
-                f"latent={n_latent}/{n_latent_emitted}  inject={n_injected}  "
-                f"time={gen_time:.2f}s  tok={gen_len}",
-                flush=True,
-            )
-            local_results.append({
-                "index":             global_idx,
-                "split":             sample.get("_split", args.split),
-                "question":          sample.get("_question_text", ""),
-                "ground_truth":      gt,
-                "predicted_answer":  extracted.lower(),
-                "is_correct":        is_correct,
-                "n_latent_steps":    n_latent,
-                "n_latent_emitted":  n_latent_emitted,
-                "n_dna_injected":    n_injected,
-                "gen_length_tokens": gen_len,
-                "gen_time_sec":      round(gen_time, 3),
-                "full_generation":   text,
-            })
+                mark  = "+" if is_correct else "-"
+                _ptag = f" p{_pass}" if _n_passes > 1 else ""
+                print(
+                    f"[rank{rank} {i+1:4d}/{len(my_records)}{_ptag}] [{mark}]  "
+                    f"gt={repr(gt):<30s}  "
+                    f"pred={repr(extracted[:50]):<52s}  "
+                    f"latent={n_latent}/{n_latent_emitted}  inject={n_injected}  "
+                    f"time={gen_time:.2f}s  tok={gen_len}",
+                    flush=True,
+                )
+                local_results.append({
+                    "index":             global_idx,
+                    "pass":              _pass,
+                    "split":             sample.get("_split", args.split),
+                    "question":          sample.get("_question_text", ""),
+                    "ground_truth":      gt,
+                    "predicted_answer":  extracted.lower(),
+                    "is_correct":        is_correct,
+                    "n_latent_steps":    n_latent,
+                    "n_latent_emitted":  n_latent_emitted,
+                    "n_dna_injected":    n_injected,
+                    "gen_length_tokens": gen_len,
+                    "gen_time_sec":      round(gen_time, 3),
+                    "full_generation":   text,
+                })
         except Exception as exc:
             print(f"[rank{rank} {i+1}/{len(my_records)}] ERROR: {exc}", flush=True)
             local_results.append({
@@ -773,6 +794,17 @@ def main():
     # ── Save predictions CSV ──────────────────────────────────────────────────
     csv_path = base_path + "_predictions.csv"
     write_csv(results, csv_path)
+
+    # ── Save per-sample traces JSONL (clean input for the RFT filter) ─────────
+    # One JSON object per line: full completion, is_correct, n_latent_emitted,
+    # gen_length_tokens, index, pass, question, ground_truth. Consumed by
+    # train/rft/build_rft_dataset.py. Useful in RFT sampling mode
+    # (--split train --temperature 0.7 --sample_passes N).
+    jsonl_path = base_path + "_traces.jsonl"
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        for r in results:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"  Traces JSONL   → {jsonl_path}")
 
     print(f"\n  Done.")
 
