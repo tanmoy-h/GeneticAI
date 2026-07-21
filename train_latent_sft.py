@@ -486,6 +486,64 @@ def load_kegg_hf(dataset_name: str, cache_dir=None, truncate_dna_per_side: int =
     return train_rows, val_rows
 
 
+def _make_rft_row(question: str, completion: str,
+                  reference_sequence: str = "", variant_sequence: str = "") -> dict:
+    """Build one self-adaptive RFT row: the assistant content is the SAMPLED completion
+    (reasoning with latent markers + </think> + Answer), not the ground-truth reasoning.
+
+    The completion was generated after a "<think>\\n" prefill, so it starts with the
+    reasoning. We reconstruct: user turn + "<|im_start|>assistant\\n<think>\\n" as `text`
+    (the prompt), and the completion as `answer`. KeggRawDataset tokenises text+answer;
+    prompt_end (via find_assistant_start) masks the user turn, and
+    label_self_adaptive_latents teacher-forces the rest INCLUDING the latent markers.
+    """
+    completion = completion.rstrip()
+    if not completion.endswith("<|im_end|>"):
+        completion += "<|im_end|>"
+    user_text   = f"<|im_start|>user\n<|dna_pad|>\n<|dna_pad|>\n{question.strip()}\n<|im_end|>\n"
+    asst_prefix = "<|im_start|>assistant\n<think>\n"
+    return {
+        "user_text":     user_text,
+        "text":          user_text + asst_prefix,
+        "answer":        completion,
+        "dna_sequences": [reference_sequence, variant_sequence],
+    }
+
+
+def load_rft_rows(traces_jsonl: str, dataset_name: str = None, kegg_csv: str = None,
+                  cache_dir=None, truncate_dna_per_side: int = 1024) -> List[dict]:
+    """Build RFT training rows by joining selected completions (by index) with the train
+    split (for question + DNA). The traces' `index` must match the train-split order the
+    sampler used (eval_grpo_checkpoint_final.py --split train --n_samples -1). Uses the
+    "default" config to match that ordering.
+    """
+    import json as _json
+    sel: Dict[int, str] = {}
+    with open(traces_jsonl, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            r = _json.loads(line)
+            sel[int(r["index"])] = r["completion"]
+
+    if kegg_csv:
+        from genomorph.dataset.kegg import load_kegg_from_anon_csv
+        ds_train = load_kegg_from_anon_csv(kegg_csv)["train"]
+    else:
+        ds_train = load_dataset(dataset_name, "default", cache_dir=cache_dir)["train"]
+
+    rows: List[dict] = []
+    for i, ex in enumerate(ds_train):
+        if i not in sel:
+            continue
+        ref, var = _trunc(ex, truncate_dna_per_side)
+        rows.append(_make_rft_row(ex["question"], sel[i], ref, var))
+    print(f"[RFT] joined {len(rows)} completions with train "
+          f"({len(sel)} selected / {len(ds_train)} train samples)")
+    return rows
+
+
 def find_assistant_start(input_ids: torch.Tensor, tokenizer) -> int:
     """Return the token index just after '<|im_start|>assistant\\n'; 0 if not found."""
     marker_ids = tokenizer.encode("<|im_start|>assistant\n", add_special_tokens=False)
@@ -773,6 +831,7 @@ def process_batch(
     prompt_ends:   Optional[List[int]] = None,                # user-turn lengths per sample
     dna_tokenized: Optional[Dict[str, torch.Tensor]] = None, # DNA inputs for inline mode
     batch_idx_map: Optional[List[int]] = None,               # DNA batch mapping
+    self_adaptive: bool = False,                             # RFT: pre-placed latents
 ):
     """
     Build modified input_ids, labels, and loss_weights for one batch.
@@ -795,6 +854,22 @@ def process_batch(
     for _text in ("</think>", "\n</think>", "Answer:", "\nAnswer:"):
         _protected.extend(tokenizer.encode(_text, add_special_tokens=False))
     protected_ids = frozenset(_protected)
+
+    # RFT / self-adaptive: the completions ALREADY contain their latent markers (placed
+    # by the GRPO controller when sampled). Skip the curriculum injection AND the inline
+    # entropy forward — just teacher-force the whole completion (latents included) and
+    # mask the prompt/padding, so the model learns to EMIT the latents itself.
+    if self_adaptive:
+        new_ids_list, labels_list, weights_list, step_counts = [], [], [], []
+        for b in range(B):
+            pe = prompt_ends[b] if prompt_ends is not None else 0
+            nid, lbl, wgt = label_self_adaptive_latents(batch_ids[b].tolist(), pe, pad_id)
+            new_ids_list.append(nid)
+            labels_list.append(lbl)
+            weights_list.append(wgt)
+            step_counts.append(int((nid == start_id).sum().item()))
+        return (torch.stack(new_ids_list), torch.stack(labels_list),
+                torch.stack(weights_list), step_counts)
 
     # Inline entropy: one forward pass (no grad)
     if entropy_map is None:
@@ -975,7 +1050,23 @@ def train(args):
               f"(factor={MAX_GATE_FACTOR})")
 
     # ── Data ──────────────────────────────────────────────────────────────────
-    if args.kegg_csv:
+    _rft = getattr(args, "rft_traces", None)
+    if _rft:
+        print(f"[RFT] Loading self-adaptive RFT traces: {_rft}")
+        all_rows = load_rft_rows(
+            _rft,
+            dataset_name          = None if args.kegg_csv else args.kegg_dataset,
+            kegg_csv              = args.kegg_csv,
+            cache_dir             = args.cache_dir,
+            truncate_dna_per_side = args.truncate_dna_per_side,
+        )
+        # val: reuse the KEGG val split as a loss proxy during RFT (normal labeling)
+        if args.kegg_csv:
+            _, val_rows = load_kegg_csv(args.kegg_csv, args.truncate_dna_per_side)
+        else:
+            _, val_rows = load_kegg_hf(args.kegg_dataset, cache_dir=args.cache_dir,
+                                       truncate_dna_per_side=args.truncate_dna_per_side)
+    elif args.kegg_csv:
         print(f"[Stage1.5] Loading KEGG from CSV: {args.kegg_csv}")
         all_rows, val_rows = load_kegg_csv(args.kegg_csv, args.truncate_dna_per_side)
     else:
@@ -1051,9 +1142,10 @@ def train(args):
         )
         print(f"  LR restarted: {args.learning_rate:.2e}  steps_this_s={steps_per_s}")
 
-        # Global mode: compute epoch-level entropies ONCE before this curriculum step
+        # Global mode: compute epoch-level entropies ONCE before this curriculum step.
+        # Skipped entirely in RFT/self-adaptive mode (no curriculum injection).
         entropy_map: Optional[Dict] = None
-        if args.entropy_mode == "global":
+        if args.entropy_mode == "global" and not getattr(args, "rft_traces", None):
             print(f"  [global] Computing epoch-level entropies for s={s} ...")
             entropy_map = compute_epoch_entropies(
                 model, train_dataset, tokenizer, device,
@@ -1093,6 +1185,7 @@ def train(args):
                         prompt_ends   = prompt_ends,
                         dna_tokenized = dna_tok,         # CPU tensors; moved inside process_batch
                         batch_idx_map = idx_map,
+                        self_adaptive = bool(getattr(args, "rft_traces", None)),
                     )
 
                     # Log one decoded sample per curriculum step to verify injection
@@ -1273,6 +1366,12 @@ def parse_args():
                    help="HuggingFace dataset name (same source as Stage 1 SFT)")
     p.add_argument("--kegg_csv",              default=None,
                    help="Local anonymized KEGG CSV path (overrides --kegg_dataset when set)")
+    p.add_argument("--rft_traces",            default=None,
+                   help="Self-adaptive RFT mode: path to the selected-traces JSONL from "
+                        "train/rft/build_rft_dataset.py. Trains on those completions with "
+                        "label_self_adaptive_latents (latents teacher-forced, no curriculum, "
+                        "no entropy precompute). Use --start_latent_step == --max_latent_steps "
+                        "for a single pass set and --passes_per_step as the epoch count.")
     p.add_argument("--output_dir",            required=True)
     p.add_argument("--entropy_mode",          default="global",
                    choices=["global", "inline"],
