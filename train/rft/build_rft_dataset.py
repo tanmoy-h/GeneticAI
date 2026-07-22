@@ -97,15 +97,23 @@ def main():
             by_index[r["index"]].append(r)
             n_lines += 1
 
-    reasons = defaultdict(int)
+    reasons  = defaultdict(int)
     selected = []
+    # Per-disease coverage: prompts seen, and how each resolved. `disease` comes from
+    # any trace of the prompt (all passes share the same ground_truth).
+    class_stats = defaultdict(lambda: {"prompts": 0, "latent": 0, "text": 0, "dropped": 0})
     for idx, recs in by_index.items():
         best, why = select_per_index(
             recs, max_words=args.max_words, require_latent=args.require_latent
         )
         reasons[why] += 1
+        disease = (recs[0].get("ground_truth", "") if recs else "").strip().lower()
+        cs = class_stats[disease]
+        cs["prompts"] += 1
         if best is None:
+            cs["dropped"] += 1
             continue
+        cs["latent" if why == "latent" else "text"] += 1
         selected.append({
             "index":             idx,
             "question":          best.get("question", ""),
@@ -121,6 +129,27 @@ def main():
         for r in selected:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
+    # ── Per-class coverage report ─────────────────────────────────────────────
+    # Full table to a CSV sidecar; problem classes (any drop, or fully text-fallback)
+    # to the console, rarest first — this is where rare-disease attention is needed.
+    report_path = args.out + ".classreport.csv"
+    rows = []
+    for dis, cs in class_stats.items():
+        kept = cs["latent"] + cs["text"]
+        rows.append((dis, cs["prompts"], cs["latent"], cs["text"], cs["dropped"],
+                     kept / cs["prompts"] if cs["prompts"] else 0.0))
+    # sort: worst coverage first, then rarest (fewest prompts) first
+    rows.sort(key=lambda r: (r[5], r[1]))
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("disease,prompts,kept_latent,kept_text_fallback,dropped,coverage\n")
+        for dis, p, lat, txt, drp, cov in rows:
+            f.write(f"\"{dis}\",{p},{lat},{txt},{drp},{cov:.3f}\n")
+
+    n_classes       = len(class_stats)
+    zero_cov        = [r for r in rows if r[5] == 0.0]                 # nothing kept
+    no_latent_only  = [r for r in rows if r[2] == 0 and (r[3] + r[4]) > 0]  # only text/dropped
+    partial         = [r for r in rows if r[4] > 0 and r[5] > 0.0]    # some dropped
+
     n_prompts = len(by_index)
     n_latent  = reasons.get("latent", 0)
     n_text    = reasons.get("text_fallback", 0)
@@ -134,6 +163,19 @@ def main():
         avg_lat = sum(r['n_latent_emitted']  for r in selected) / len(selected)
         print(f"  mean gen_length : {avg_len:.1f} tokens")
         print(f"  mean latents    : {avg_lat:.2f} blocks/trace")
+
+    print(f"\n== Per-class coverage ({n_classes} diseases) -> {report_path} ==")
+    print(f"  fully-covered classes : {n_classes - len(zero_cov) - len(partial)}")
+    print(f"  ZERO-coverage classes : {len(zero_cov)}   (RFT cannot help these - model never got them right+wellformed)")
+    print(f"  latent-less classes   : {len(no_latent_only)}   (kept only text traces - no correct latent demo)")
+    if zero_cov:
+        print("  zero-coverage (rarest first):")
+        for dis, p, lat, txt, drp, cov in zero_cov[:30]:
+            print(f"    {dis:<45s} prompts={p} dropped={drp}")
+    if no_latent_only:
+        print("  latent-less (rarest first):")
+        for dis, p, lat, txt, drp, cov in no_latent_only[:30]:
+            print(f"    {dis:<45s} prompts={p} text={txt} dropped={drp}")
 
 
 if __name__ == "__main__":
