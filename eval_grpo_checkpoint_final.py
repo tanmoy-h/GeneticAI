@@ -145,6 +145,9 @@ def parse_args():
     # optB: load learned theta_low from checkpoint
     p.add_argument("--theta_low_pt",   default=None,
                    help="Path to theta_low.pt (optB). Overrides --theta_low when set.")
+    p.add_argument("--no_theta_pt",    action="store_true",
+                   help="Skip auto-loading <checkpoint>/theta_low.pt; use --theta_low as-is "
+                        "(for sweeping theta_low on a trained checkpoint).")
 
     # Auxiliary module checkpoints (default: look inside --checkpoint dir)
     p.add_argument("--gate_pt",      default=None,
@@ -570,7 +573,7 @@ def main():
     # so auto-detect it there (like the gate/injector) — only --checkpoint is needed.
     # An explicit --theta_low_pt still overrides; --theta_low is the final fallback.
     theta_low   = args.theta_low
-    _theta_pt   = args.theta_low_pt or os.path.join(args.checkpoint, "theta_low.pt")
+    _theta_pt   = None if getattr(args, "no_theta_pt", False) else (args.theta_low_pt or os.path.join(args.checkpoint, "theta_low.pt"))
     if _theta_pt and os.path.exists(_theta_pt):
         saved = torch.load(_theta_pt, map_location="cpu")
         theta_low = float(saved["theta_low_param"].item())

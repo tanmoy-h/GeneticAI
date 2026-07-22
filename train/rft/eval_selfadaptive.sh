@@ -33,6 +33,8 @@ CKPT=${CKPT:-}
 THETA_LOW_PT=${THETA_LOW_PT:-}
 THETA_LOW=${THETA_LOW:-0.5}
 THETA_HIGH=${THETA_HIGH:-3.0}
+MAX_CONSEC=${MAX_CONSEC:-3}             # latent block length / max consecutive latent steps
+NO_THETA_PT=${NO_THETA_PT:-0}          # 1 = ignore checkpoint theta_low.pt, use THETA_LOW as-is (theta sweep)
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref}
 
@@ -70,6 +72,7 @@ fi
 
 EXTRA=()
 [ "$CONTROLLER" != "1" ] && EXTRA+=(--self_adaptive)
+[ "$NO_THETA_PT" = "1" ] && EXTRA+=(--no_theta_pt)
 [ -n "$THETA_LOW_PT" ] && [ -f "$THETA_LOW_PT" ] && EXTRA+=(--theta_low_pt "$THETA_LOW_PT")
 [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA+=(--dna_cache "$DNA_CACHE")
 [ -n "$STAGE2_DIR" ] && EXTRA+=(--stage2_dir "$STAGE2_DIR")
@@ -114,6 +117,7 @@ stdbuf -oL -eL accelerate launch --config_file "$ACCEL_CFG" \
     --lora_alpha            32 \
     --theta_low             "$THETA_LOW" \
     --theta_high            "$THETA_HIGH" \
+    --max_consec            "$MAX_CONSEC" \
     --lookahead_k           3 \
     --output_dir            "$OUTPUT_DIR" \
     --output_prefix         "rft_${_MODE}_$(basename "$CKPT" .pt)" \
