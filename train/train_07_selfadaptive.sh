@@ -55,14 +55,22 @@ set -e
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
+_SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/.."
 mkdir -p train/logs
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
 export CUDA_VISIBLE_DEVICES=${1:-0}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
-LOG=train/logs/train_07_selfadaptive_$(date +%Y%m%d_%H%M%S).log
-exec > >(tee "$LOG") 2>&1
+## Robust run-log capture via a plain pipe (`exec > >(tee)` can drop output). Re-exec
+## once through tee; the child reuses the exported LOG and env.
+LOG="${LOG:-train/logs/train_07_selfadaptive_$(date +%Y%m%d_%H%M%S).log}"
+if [ -z "${_RFT_LOG_WRAPPED:-}" ]; then
+    export _RFT_LOG_WRAPPED=1 LOG STAGE1_CKPT RFT_TRACES
+    echo "Logging run to: $LOG"
+    bash "$_SELF" "$@" 2>&1 | tee "$LOG"
+    exit ${PIPESTATUS[0]}
+fi
 echo "Command:       bash $0 $*"
 echo "Logging to:    $LOG"
 echo "CUDA:          $CUDA_VISIBLE_DEVICES"
