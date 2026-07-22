@@ -544,12 +544,16 @@ def main():
     load_w9_checkpoint(model, thinking_gate, dna_injector, args, device)
 
     # ── LatentSp controller ───────────────────────────────────────────────────
+    # theta_low.pt lives in the checkpoint dir next to thinking_gate.pt/dna_injector.pt,
+    # so auto-detect it there — only --checkpoint is needed. --theta_low_pt overrides;
+    # --theta_low is the final fallback.
     theta_low = args.theta_low
-    if args.theta_low_pt and os.path.exists(args.theta_low_pt):
-        saved = torch.load(args.theta_low_pt, map_location="cpu")
+    _theta_pt = args.theta_low_pt or os.path.join(args.checkpoint, "theta_low.pt")
+    if _theta_pt and os.path.exists(_theta_pt):
+        saved = torch.load(_theta_pt, map_location="cpu")
         theta_low = float(saved["theta_low_param"].item())
         if rank == 0:
-            print(f"  Loaded learned theta_low={theta_low:.4f} ← {args.theta_low_pt}")
+            print(f"  Loaded learned theta_low={theta_low:.4f} ← {_theta_pt}")
 
     latentSp_ctrl = LatentSpController(
         theta_low       = theta_low,

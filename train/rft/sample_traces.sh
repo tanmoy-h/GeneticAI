@@ -17,8 +17,9 @@
 ##
 ## Usage:
 ##   CKPT=<...>/train_06b_stage3_grpo_optB_planA/checkpoint-772 \
-##   THETA_LOW_PT=<...>/checkpoint-772/theta_low.pt \
 ##     bash train/rft/sample_traces.sh [gpu_ids]
+##   (theta_low.pt / thinking_gate.pt / dna_injector.pt all auto-load from CKPT's dir;
+##    only override THETA_LOW_PT to force a different learned threshold.)
 ##
 ## Cost: 1159 prompts x SAMPLE_PASSES generations. Use 2+ GPUs; drop SAMPLE_PASSES to 4
 ## to halve time if needed.
@@ -38,7 +39,7 @@ MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 
 ## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED.
 CKPT=${CKPT:-}
-THETA_LOW_PT=${THETA_LOW_PT:-}          # learned theta_low.pt (optB); optional
+THETA_LOW_PT=${THETA_LOW_PT:-}          # optional; auto-loads from CKPT/theta_low.pt if unset
 THETA_LOW=${THETA_LOW:-0.5}             # used if THETA_LOW_PT not set
 THETA_HIGH=${THETA_HIGH:-3.0}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}

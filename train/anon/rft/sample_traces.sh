@@ -5,8 +5,8 @@
 ##
 ## Usage:
 ##   CKPT=<...>/train_06b_stage3_grpo_optB_anon/checkpoint-772 \
-##   THETA_LOW_PT=<...>/checkpoint-772/theta_low.pt \
 ##     bash train/anon/rft/sample_traces.sh [gpu_ids]
+##   (theta_low.pt / gate / injector all auto-load from CKPT's dir.)
 set -euo pipefail
 _REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 
