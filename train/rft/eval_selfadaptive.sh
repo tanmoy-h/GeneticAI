@@ -44,7 +44,6 @@ fi
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-_SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/../.."
 mkdir -p "$OUTPUT_DIR"
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
@@ -53,16 +52,11 @@ export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
 _MODE=$([ "$CONTROLLER" = "1" ] && echo "controller" || echo "selfadaptive")
-## Save the full console run-log NEXT TO the eval outputs (OUTPUT_DIR), captured via a
-## plain pipe. `exec > >(tee)` process-substitution can be bypassed by the launcher or
-## drop the tail on exit; re-exec once through tee instead (child reuses the exported LOG).
+## Run-log co-located with the eval outputs (OUTPUT_DIR); tee keeps terminal + file.
+## In-process redirect (NOT a re-exec — a re-exec re-runs conda activate in a fresh
+## non-interactive bash where the `conda` shell function isn't defined, which hangs).
 LOG="${LOG:-$OUTPUT_DIR/rft_${_MODE}_$(basename "$CKPT" .pt)_$(date +%Y%m%d_%H%M%S)_run.log}"
-if [ -z "${_RFT_LOG_WRAPPED:-}" ]; then
-    export _RFT_LOG_WRAPPED=1 LOG CKPT
-    echo "Logging run to: $LOG"
-    bash "$_SELF" "$@" 2>&1 | tee "$LOG"
-    exit ${PIPESTATUS[0]}
-fi
+exec > >(tee "$LOG") 2>&1
 echo "Command:    bash $0 $*"
 echo "Checkpoint: $CKPT"
 echo "Mode:       $_MODE   split=$SPLIT  n=$N_SAMPLES"

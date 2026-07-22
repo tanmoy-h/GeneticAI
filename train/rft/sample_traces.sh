@@ -54,7 +54,6 @@ fi
 module load MLDL/miniconda3 2>/dev/null || true
 module load cuda/12.8        2>/dev/null || true
 conda activate $CONDA_ENV
-_SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/../.."
 mkdir -p "$OUTPUT_DIR"
 export TMPDIR=$(pwd)/tmp && mkdir -p "$TMPDIR"
@@ -62,15 +61,10 @@ export CUDA_VISIBLE_DEVICES=${1:-0,1}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
-## Save the run-log NEXT TO the sampled traces (OUTPUT_DIR) via a plain pipe (robust;
-## `exec > >(tee)` process-substitution can be bypassed by the launcher / drop the tail).
+## Run-log co-located with the sampled traces (OUTPUT_DIR); in-process tee (no re-exec,
+## which would re-run conda activate in a fresh non-interactive bash and hang).
 LOG="${LOG:-$OUTPUT_DIR/${OUTPUT_PREFIX}_$(date +%Y%m%d_%H%M%S)_run.log}"
-if [ -z "${_RFT_LOG_WRAPPED:-}" ]; then
-    export _RFT_LOG_WRAPPED=1 LOG CKPT
-    echo "Logging run to: $LOG"
-    bash "$_SELF" "$@" 2>&1 | tee "$LOG"
-    exit ${PIPESTATUS[0]}
-fi
+exec > >(tee "$LOG") 2>&1
 echo "Command:      bash $0 $*"
 echo "Checkpoint:   $CKPT"
 echo "Passes:       $SAMPLE_PASSES  temp=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K"
