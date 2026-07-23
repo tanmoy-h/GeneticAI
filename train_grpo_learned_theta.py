@@ -176,6 +176,12 @@ class LatentSpControllerOptB(nn.Module):
         # Cleared by LatentSpWarmupCallbackOptB.on_step_begin.
         self._step_decisions: List[Tuple[float, bool]] = []
 
+        # Per-COMPLETION decisions for the per-row REINFORCE (correct credit
+        # assignment). None → legacy batch-shared path. When set by
+        # reset_row_decisions(B), it is a length-B list; row i holds that
+        # completion's own (entropy, was_latent) boundary decisions.
+        self._step_decisions_row: Optional[List[List[Tuple[float, bool]]]] = None
+
     @property
     def theta_low(self) -> float:
         """Effective theta_low for display / downstream callers."""
@@ -212,38 +218,79 @@ class LatentSpControllerOptB(nn.Module):
 
     def clear_decisions(self):
         self._step_decisions.clear()
+        self._step_decisions_row = None
 
-    def compute_theta_loss(self, adv_mean: float) -> Optional[torch.Tensor]:
+    def reset_row_decisions(self, batch_size: int):
+        """Begin per-completion decision tracking for a batch of `batch_size` rollouts
+        (enables the per-row REINFORCE credit assignment in compute_theta_loss)."""
+        self._step_decisions_row = [[] for _ in range(batch_size)]
+
+    def is_latent_step_row(self, entropy: float, consecutive: int, row: int) -> bool:
+        """Per-COMPLETION latent decision (one row). Same stochastic rule as
+        is_latent_step, but the (entropy, was_latent) is credited to completion `row`
+        so the REINFORCE can correlate a completion's own advantage with its own
+        latent choices."""
+        if self.disabled or self._warmup_scale <= 0.0:
+            return False
+        eff_theta = float(self.theta_low_param.clamp(0.05, 8.0).item()) * self._warmup_scale
+        with torch.no_grad():
+            p = torch.sigmoid(
+                torch.tensor(self.alpha * (eff_theta - entropy), dtype=torch.float32)
+            ).item()
+        was_latent = (bool(torch.bernoulli(torch.tensor(p)).item())
+                      and consecutive < self.max_consecutive)
+        if self._step_decisions_row is not None and 0 <= row < len(self._step_decisions_row):
+            self._step_decisions_row[row].append((entropy, was_latent))
+        return was_latent
+
+    def compute_theta_loss(self, advantages) -> Optional[torch.Tensor]:
+        """REINFORCE loss for theta_low.
+
+        PER-COMPLETION path (after reset_row_decisions()) — correct credit assignment:
+            L = -(1/N) Σ_i A_i · Σ_{(h,d) ∈ completion i} log π(d | h)
+        Each completion's OWN advantage A_i weights ITS OWN latent decisions. The signal
+        is non-zero and correctly credited — unlike the group-MEAN advantage, which is
+        ~0 by GRPO normalisation (rewards − group_mean), which is why the legacy
+        estimator barely learned.
+
+        LEGACY path (batch-shared self._step_decisions): the old
+        -adv_mean · mean(log π), kept for the shared-decision generation path.
+        `advantages` may be the per-completion tensor or a scalar mean.
+
+        log(sigmoid(x)) = -softplus(-x) for numerical stability.
         """
-        REINFORCE loss: -adv_mean * mean_over_boundaries(log π(decision | entropy)).
-
-        Gradient flows through theta_low_param via the sigmoid.
-          adv_mean > 0 + was_latent=True  → push theta_low UP  (fire more)
-          adv_mean < 0 + was_latent=True  → push theta_low DOWN (fire less)
-          adv_mean > 0 + was_latent=False → push theta_low DOWN (non-latent rewarded)
-        This is the correct REINFORCE direction for making decisions consistent
-        with what earned high advantage.
-
-        Uses log(sigmoid(x)) = -softplus(-x) for numerical stability, and
-        vectorises the per-decision computation into a single tensor op.
-        """
-        if not self._step_decisions or self._warmup_scale <= 0.0:
+        if self._warmup_scale <= 0.0:
             return None
-
         dtype  = self.theta_low_param.dtype
         device = self.theta_low_param.device
         eff_theta = self.theta_low_param.clamp(0.05, 8.0) * self._warmup_scale
 
-        entropies   = torch.tensor([h for h, _ in self._step_decisions],
-                                   dtype=dtype, device=device)
-        was_latent  = torch.tensor([d for _, d in self._step_decisions],
-                                   dtype=torch.bool, device=device)
-        logits      = self.alpha * (eff_theta - entropies)
-        # log p          = log σ(x)       = -softplus(-x)
-        # log (1 - p)    = log σ(-x)      = -softplus(x)
-        log_pi      = torch.where(
-            was_latent, -F.softplus(-logits), -F.softplus(logits)
-        )
+        # ── Per-completion credit assignment ──────────────────────────────────
+        if self._step_decisions_row is not None:
+            adv = (advantages.detach().to(device).float() if torch.is_tensor(advantages)
+                   else torch.tensor([float(advantages)], device=device))
+            terms = []
+            for i, decs in enumerate(self._step_decisions_row):
+                if not decs or i >= adv.numel():
+                    continue
+                h  = torch.tensor([e for e, _ in decs], dtype=dtype, device=device)
+                d  = torch.tensor([b for _, b in decs], dtype=torch.bool, device=device)
+                lg = self.alpha * (eff_theta - h)
+                lp = torch.where(d, -F.softplus(-lg), -F.softplus(lg))
+                terms.append(adv[i] * lp.sum())
+            if not terms:
+                return None
+            return -torch.stack(terms).mean()
+
+        # ── Legacy batch-shared path ──────────────────────────────────────────
+        if not self._step_decisions:
+            return None
+        adv_mean = (advantages.float().mean().item() if torch.is_tensor(advantages)
+                    else float(advantages))
+        entropies  = torch.tensor([h for h, _ in self._step_decisions], dtype=dtype, device=device)
+        was_latent = torch.tensor([d for _, d in self._step_decisions], dtype=torch.bool, device=device)
+        logits     = self.alpha * (eff_theta - entropies)
+        log_pi     = torch.where(was_latent, -F.softplus(-logits), -F.softplus(logits))
         return -float(adv_mean) * log_pi.mean()
 
 
@@ -574,8 +621,10 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
         if decisions and self.latentSp_ctrl._warmup_scale > 0.0:
             adv = inputs.get("advantages", None)
             if adv is not None:
-                adv_mean = adv.float().mean().item()
-                theta_loss = self.latentSp_ctrl.compute_theta_loss(adv_mean)
+                # Pass the per-completion advantage VECTOR (not the ~0 group mean).
+                # compute_theta_loss uses per-completion credit when the generation
+                # recorded per-row decisions; otherwise it means internally (legacy).
+                theta_loss = self.latentSp_ctrl.compute_theta_loss(adv)
                 if theta_loss is not None and torch.isfinite(theta_loss).item():
                     # theta_loss is on the same device as theta_low_param
                     # (now CUDA after the .to() in main); broadcast to loss
