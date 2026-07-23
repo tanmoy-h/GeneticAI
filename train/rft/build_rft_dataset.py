@@ -46,8 +46,12 @@ def word_count(text: str) -> int:
     return len(text.split())
 
 
-def select_per_index(records, max_words=None, require_latent=False):
-    """records: list of trace dicts sharing one index. Return the chosen dict or None."""
+def select_per_index(records, max_words=None, require_latent=False, is_rare=False):
+    """records: list of trace dicts sharing one index. Return the chosen dict or None.
+
+    is_rare relaxes the filters so a rare class never loses its only correct trace:
+    the word cap is skipped, and a text fallback is allowed even under require_latent.
+    """
     # correct + well-formed candidates
     cands = [
         r for r in records
@@ -57,7 +61,9 @@ def select_per_index(records, max_words=None, require_latent=False):
     if not cands:
         return None, "no_correct_wellformed"
 
-    if max_words is not None:
+    # Rare classes ignore the word cap entirely (keep the correct trace even if long);
+    # common classes apply it softly (only if it leaves something).
+    if max_words is not None and not is_rare:
         capped = [r for r in cands if word_count(r["full_generation"]) <= max_words]
         if capped:                       # only apply the cap if it leaves something
             cands = capped
@@ -66,7 +72,7 @@ def select_per_index(records, max_words=None, require_latent=False):
     if latent:
         best = min(latent, key=lambda r: r.get("gen_length_tokens", 1 << 30))
         return best, "latent"
-    if require_latent:
+    if require_latent and not is_rare:   # rare classes always keep a text fallback
         return None, "no_correct_latent"
     # text fallback: shortest correct well-formed trace
     best = min(cands, key=lambda r: r.get("gen_length_tokens", 1 << 30))
@@ -84,6 +90,14 @@ def main():
     p.add_argument("--require_latent", action="store_true",
                    help="Drop prompts with no correct latent-using trace (no text "
                         "fallback). Yields a purely latent training set.")
+    p.add_argument("--rare_max_prompts", type=int, default=0,
+                   help="A disease with <= this many prompts is treated as RARE: its "
+                        "correct traces bypass the word cap and require_latent, and its "
+                        "kept rows are oversampled (see --rare_oversample). 0 disables.")
+    p.add_argument("--rare_oversample", type=int, default=1,
+                   help="Duplicate each RARE class's kept rows this many times in the "
+                        "output (1 = no oversampling). Counters flat-per-sample dilution "
+                        "so the self-adaptive SFT weights rare diseases more.")
     args = p.parse_args()
 
     by_index = defaultdict(list)
@@ -97,24 +111,37 @@ def main():
             by_index[r["index"]].append(r)
             n_lines += 1
 
+    # Per-class prompt counts (needed BEFORE selection so rare classes get relaxed
+    # filters). Diseases with <= rare_max_prompts prompts are rare.
+    prompts_per_disease = defaultdict(int)
+    for recs in by_index.values():
+        disease = (recs[0].get("ground_truth", "") if recs else "").strip().lower()
+        prompts_per_disease[disease] += 1
+
+    def _is_rare(disease):
+        return args.rare_max_prompts > 0 and prompts_per_disease[disease] <= args.rare_max_prompts
+
     reasons  = defaultdict(int)
     selected = []
+    n_oversampled = 0
     # Per-disease coverage: prompts seen, and how each resolved. `disease` comes from
     # any trace of the prompt (all passes share the same ground_truth).
     class_stats = defaultdict(lambda: {"prompts": 0, "latent": 0, "text": 0, "dropped": 0})
     for idx, recs in by_index.items():
+        disease = (recs[0].get("ground_truth", "") if recs else "").strip().lower()
+        rare = _is_rare(disease)
         best, why = select_per_index(
-            recs, max_words=args.max_words, require_latent=args.require_latent
+            recs, max_words=args.max_words, require_latent=args.require_latent,
+            is_rare=rare,
         )
         reasons[why] += 1
-        disease = (recs[0].get("ground_truth", "") if recs else "").strip().lower()
         cs = class_stats[disease]
         cs["prompts"] += 1
         if best is None:
             cs["dropped"] += 1
             continue
         cs["latent" if why == "latent" else "text"] += 1
-        selected.append({
+        row = {
             "index":             idx,
             "question":          best.get("question", ""),
             "ground_truth":      best.get("ground_truth", ""),
@@ -122,7 +149,14 @@ def main():
             "n_latent_emitted":  best.get("n_latent_emitted", 0),
             "gen_length_tokens": best.get("gen_length_tokens", 0),
             "select_reason":     why,
-        })
+            "rare":              rare,
+        }
+        # Oversample rare classes: emit the row `rare_oversample` times so the SFT
+        # gradient weights the rare disease more (counters GRPO's flat-per-sample bias).
+        copies = args.rare_oversample if (rare and args.rare_oversample > 1) else 1
+        for _ in range(copies):
+            selected.append(row)
+        n_oversampled += copies - 1
 
     selected.sort(key=lambda r: r["index"])
     with open(args.out, "w", encoding="utf-8") as f:
@@ -153,10 +187,15 @@ def main():
     n_prompts = len(by_index)
     n_latent  = reasons.get("latent", 0)
     n_text    = reasons.get("text_fallback", 0)
+    n_rare_classes = sum(1 for d in prompts_per_disease if _is_rare(d))
     print(f"Read {n_lines} traces over {n_prompts} prompts")
     print(f"Selected {len(selected)} rows -> {args.out}")
     print(f"  latent traces   : {n_latent}")
     print(f"  text fallback   : {n_text}")
+    if args.rare_max_prompts > 0:
+        print(f"  rare classes    : {n_rare_classes}  (<= {args.rare_max_prompts} prompts; "
+              f"filters relaxed, oversample x{args.rare_oversample})")
+        print(f"  rows added by oversampling : {n_oversampled}")
     print(f"  dropped         : {reasons.get('no_correct_wellformed', 0) + reasons.get('no_correct_latent', 0)}")
     if selected:
         avg_len = sum(r['gen_length_tokens'] for r in selected) / len(selected)
