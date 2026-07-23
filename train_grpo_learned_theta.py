@@ -111,6 +111,24 @@ class GRPOScriptArgumentsOptB(GRPOScriptArgumentsW9):
         metadata={"help": "Sigmoid temperature: p_latent = sigmoid(alpha*(theta - entropy)). "
                           "Higher alpha → sharper decision boundary.  Keep fixed during training."},
     )
+    theta_search: bool = field(
+        default=False,
+        metadata={"help": "Optimise theta_low by sliding-window SPSA on the reward "
+                          "(ThetaSlidingWindowCallback) instead of the zero-signal REINFORCE "
+                          "theta_loss. Also removes theta_low's autograd param group / grad-sync."},
+    )
+    theta_search_delta: float = field(
+        default=0.1,
+        metadata={"help": "SPSA perturbation size (±) applied to theta_low each step."},
+    )
+    theta_search_lr: float = field(
+        default=0.02,
+        metadata={"help": "SPSA step size for the theta_low update."},
+    )
+    theta_search_window: int = field(
+        default=30,
+        metadata={"help": "Sliding-window size (steps) for the SPSA reward baseline + gradient."},
+    )
     disable_latents: bool = field(
         default=False,
         metadata={"help": "Latent ablation. When True, is_latent_step() always returns False "
@@ -182,12 +200,18 @@ class LatentSpControllerOptB(nn.Module):
         # completion's own (entropy, was_latent) boundary decisions.
         self._step_decisions_row: Optional[List[List[Tuple[float, bool]]]] = None
 
+        # Sliding-window SPSA search for theta_low (derivative-free, on the reward).
+        # _theta_perturb is added to theta_low_param at generation time this step;
+        # _reward_window holds (sign, reward) observations for the finite-diff update.
+        self._theta_perturb: float = 0.0
+        self._reward_window: List[Tuple[float, float]] = []
+
     @property
     def theta_low(self) -> float:
         """Effective theta_low for display / downstream callers."""
         if self.disabled:
             return 0.0  # latent ablation: report 0 so downstream 'theta<=0' guards see latents-off
-        return float(self.theta_low_param.clamp(0.05, 8.0).item()) * self._warmup_scale
+        return (max(0.05, min(8.0, self.theta_low_param.item() + self._theta_perturb)) * self._warmup_scale)
 
     def is_latent_step(self, entropy: float, consecutive: int) -> bool:
         """
@@ -201,7 +225,7 @@ class LatentSpControllerOptB(nn.Module):
         if self._warmup_scale <= 0.0:
             return False
 
-        eff_theta = float(self.theta_low_param.clamp(0.05, 8.0).item()) * self._warmup_scale
+        eff_theta = (max(0.05, min(8.0, self.theta_low_param.item() + self._theta_perturb)) * self._warmup_scale)
         with torch.no_grad():
             p = torch.sigmoid(
                 torch.tensor(self.alpha * (eff_theta - entropy), dtype=torch.float32)
@@ -220,6 +244,36 @@ class LatentSpControllerOptB(nn.Module):
         self._step_decisions.clear()
         self._step_decisions_row = None
 
+    # ── Sliding-window SPSA search on theta_low (derivative-free) ──────────────
+    def set_perturbation(self, step: int, delta: float) -> float:
+        """Set an antithetic ±delta perturbation on theta_low for this step, seeded
+        by `step` so it is IDENTICAL on every rank (no RNG-state or collective needed).
+        Returns the sign used, to pair with this step's reward."""
+        import random as _random
+        sign = 1.0 if _random.Random(int(step)).random() < 0.5 else -1.0
+        self._theta_perturb = sign * float(delta)
+        return sign
+
+    def sliding_window_update(self, sign: float, reward: float, lr: float,
+                              delta: float, window: int, warmup_done: bool):
+        """SPSA update of theta_low_param from a sliding window of (sign, reward),
+        with a windowed baseline (subtract the window-mean reward) for variance
+        reduction — the 'advantage'. Since inputs (gathered reward + step-seeded sign)
+        are identical across ranks, every rank performs the SAME scalar update, so
+        theta_low_param stays in lock-step with NO collective."""
+        self._reward_window.append((float(sign), float(reward)))
+        if len(self._reward_window) > window:
+            self._reward_window.pop(0)
+        if not warmup_done or len(self._reward_window) < window:
+            return
+        rs   = [r for _, r in self._reward_window]
+        base = sum(rs) / len(rs)                                  # windowed baseline
+        g    = (sum(s * (r - base) for s, r in self._reward_window)
+                / len(self._reward_window) / max(float(delta), 1e-6))
+        with torch.no_grad():
+            self.theta_low_param.add_(float(lr) * g)
+            self.theta_low_param.clamp_(0.05, 8.0)
+
     def reset_row_decisions(self, batch_size: int):
         """Begin per-completion decision tracking for a batch of `batch_size` rollouts
         (enables the per-row REINFORCE credit assignment in compute_theta_loss)."""
@@ -232,7 +286,7 @@ class LatentSpControllerOptB(nn.Module):
         latent choices."""
         if self.disabled or self._warmup_scale <= 0.0:
             return False
-        eff_theta = float(self.theta_low_param.clamp(0.05, 8.0).item()) * self._warmup_scale
+        eff_theta = (max(0.05, min(8.0, self.theta_low_param.item() + self._theta_perturb)) * self._warmup_scale)
         with torch.no_grad():
             p = torch.sigmoid(
                 torch.tensor(self.alpha * (eff_theta - entropy), dtype=torch.float32)
@@ -367,6 +421,44 @@ class LatentSpWarmupCallbackOptB(TrainerCallback):
                 f"theta_low_param={self._ctrl.theta_low_param.item():.4f}  "
                 f"eff_theta={self._ctrl.theta_low:.4f}  step={step}"
             )
+
+
+# ── Sliding-window SPSA search on theta_low ───────────────────────────────────
+
+class ThetaSlidingWindowCallback(TrainerCallback):
+    """Derivative-free search for theta_low on the actual reward (replaces the
+    zero-signal REINFORCE). on_step_begin perturbs theta by +/-delta (seeded by the
+    step, identical on every rank); on_step_end reads the GATHERED mean reward for
+    this step and does the windowed SPSA update. All ranks see the same reward and
+    sign -> identical scalar update -> theta stays in sync with NO collective.
+
+    Generation happens once per global_step (num_iterations=1), so the reward logged
+    at _metrics['train']['reward'][-1] at on_step_end corresponds to this step's
+    perturbed-theta rollouts.
+    """
+
+    def __init__(self, ctrl: "LatentSpControllerOptB", warmup_steps: int,
+                 delta: float, lr: float, window: int):
+        self._ctrl   = ctrl
+        self.warmup  = warmup_steps
+        self.delta   = float(delta)
+        self.lr      = float(lr)
+        self.window  = int(window)
+        self.trainer = None       # set after trainer construction in main()
+        self._sign   = 1.0
+
+    def on_step_begin(self, args, state, control, **kwargs):
+        self._sign = self._ctrl.set_perturbation(state.global_step, self.delta)
+
+    def on_step_end(self, args, state, control, **kwargs):
+        m = getattr(self.trainer, "_metrics", None) if self.trainer is not None else None
+        hist = (m.get("train", {}) or {}).get("reward", []) if m else []
+        if not hist:
+            return
+        warmup_done = state.global_step >= self.warmup
+        self._ctrl.sliding_window_update(
+            self._sign, hist[-1], self.lr, self.delta, self.window, warmup_done
+        )
 
 
 # ── Save callback (gate + injector + theta_low_param) ─────────────────────────
@@ -533,12 +625,17 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
         latentSp_ctrl:    LatentSpControllerOptB,
         theta_low_lr:     float = 1e-4,
         theta_low_weight: float = 0.1,
+        theta_search:     bool  = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.latentSp_ctrl    = latentSp_ctrl
         self.theta_low_lr     = theta_low_lr
         self.theta_low_weight = theta_low_weight
+        # theta_search: optimise theta_low by sliding-window SPSA on the reward
+        # (ThetaSlidingWindowCallback) instead of the zero-signal REINFORCE. When on,
+        # theta_low_param is NOT an autograd param (no optimizer group, no grad sync).
+        self.theta_search     = theta_search
 
         # theta_low_param lives outside the DDP-wrapped model, so DDP does not
         # sync its gradient — we must do it ourselves. The previous approach (an
@@ -554,7 +651,9 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
         # Sync only at the accumulation boundary (when the optimizer will step),
         # but ALWAYS on every rank there — regardless of whether this rank fired
         # any latents — so the collective count can never diverge across ranks.
-        if self.accelerator.sync_gradients:
+        # Skipped in theta_search mode: theta_low_param has no gradient (updated by
+        # the sliding-window callback), so there is nothing to sync.
+        if self.accelerator.sync_gradients and not self.theta_search:
             self._sync_theta_low_grad()
         return loss
 
@@ -595,11 +694,14 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
             lr_multiplier_lambda = 20.0,
             weight_decay         = self.args.weight_decay,
         )
-        param_groups.append({
-            "params":       [self.latentSp_ctrl.theta_low_param],
-            "lr":           self.theta_low_lr,
-            "weight_decay": 0.0,
-        })
+        # In theta_search mode theta_low_param is updated by SPSA, not AdamW — so
+        # do NOT add it as an optimizer param group (keeps it out of autograd/sync).
+        if not self.theta_search:
+            param_groups.append({
+                "params":       [self.latentSp_ctrl.theta_low_param],
+                "lr":           self.theta_low_lr,
+                "weight_decay": 0.0,
+            })
         self.optimizer = torch.optim.AdamW(param_groups)
         print(
             f"[OptB] Optimizer: {len(param_groups)} param groups | "
@@ -615,6 +717,17 @@ class ThinkingResidualGRPOTrainer_OptB(ThinkingResidualGRPOTrainer):
 
         if loss.item() == 0.0:
             return loss  # anomaly guard zeroed the loss — skip theta_loss too
+
+        # theta_search: the sliding-window SPSA callback owns theta_low — just log it
+        # and skip the REINFORCE entirely.
+        if self.theta_search:
+            if self.latentSp_ctrl._warmup_scale > 0.0:
+                mode = "train" if model.training else "eval"
+                self._metrics[mode].setdefault("theta_low_param", []).append(
+                    self.latentSp_ctrl.theta_low_param.detach().item())
+                self._metrics[mode].setdefault("theta_low_eff", []).append(
+                    self.latentSp_ctrl.theta_low)
+            return loss
 
         # REINFORCE: theta_loss uses decisions recorded during generate_with_hrpo_gate
         decisions = self.latentSp_ctrl._step_decisions
@@ -844,11 +957,25 @@ def main(script_args, training_args, model_args):
     else:
         _eval_ds = None
 
+    _theta_cb = None
+    if script_args.theta_search:
+        _theta_cb = ThetaSlidingWindowCallback(
+            latentSp_ctrl,
+            warmup_steps = script_args.latentSp_warmup_steps + script_args.latentSp_ramp_steps,
+            delta        = script_args.theta_search_delta,
+            lr           = script_args.theta_search_lr,
+            window       = script_args.theta_search_window,
+        )
+        print(f"[OptB] theta_search ON: SPSA delta={script_args.theta_search_delta} "
+              f"lr={script_args.theta_search_lr} window={script_args.theta_search_window} "
+              f"(REINFORCE theta_loss + theta grad-sync disabled)")
+
     trainer = ThinkingResidualGRPOTrainer_OptB(
         # OptB-specific
         latentSp_ctrl    = latentSp_ctrl,
         theta_low_lr     = script_args.theta_low_lr,
         theta_low_weight = script_args.theta_low_weight,
+        theta_search     = script_args.theta_search,
         # Base trainer args (from ThinkingResidualGRPOTrainer)
         thinking_gate    = thinking_gate,
         manifold_gate    = manifold_gate,
@@ -884,10 +1011,13 @@ def main(script_args, training_args, model_args):
                 n                = getattr(script_args, "keep_best_n", 2),
                 greater_is_better = training_args.greater_is_better,
             ),
+            *([_theta_cb] if _theta_cb is not None else []),
         ],
         processing_class = model.processor,
     )
     training_args.save_safetensors = False
+    if _theta_cb is not None:
+        _theta_cb.trainer = trainer   # so on_step_end can read the gathered mean reward
 
     # ── Resume ────────────────────────────────────────────────────────────────
     resume = training_args.resume_from_checkpoint

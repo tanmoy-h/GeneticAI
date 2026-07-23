@@ -184,6 +184,13 @@ args=(
     --theta_low_lr           1e-4
     --theta_low_weight       0.05
     --theta_low_alpha        5.0
+    ## theta_low is optimised by sliding-window SPSA on the reward (fixes the
+    ## zero-signal REINFORCE + removes theta grad-sync/deadlock). Search starts
+    ## after the latent warmup+ramp. --latentSp_theta_low is the search START value.
+    --theta_search           True
+    --theta_search_delta     0.1
+    --theta_search_lr        0.02
+    --theta_search_window    30
 
     ## GRPO
     --num_generations        8
