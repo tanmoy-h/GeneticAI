@@ -175,7 +175,7 @@ args=(
     ##                    from 0.1 so the learned threshold settles instead of
     ##                    climbing to ~0.97 and inflating latent firing/time)
     ## theta_low_alpha: sigmoid temperature (keep fixed)
-    --latentSp_theta_low        0.5
+    --latentSp_theta_low        0.8
     --latentSp_theta_high       3.0
     --latentSp_max_consec       2
     --latent_lookahead_k        3
