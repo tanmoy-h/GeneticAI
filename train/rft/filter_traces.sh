@@ -10,6 +10,9 @@
 ##   # correct GRPO latent trace are covered by an SFT trace:
 ##   TRACES="train/rft/samples/rft_sample_traces.jsonl train/rft/samples/rft_sample_sft_traces.jsonl" \
 ##     bash train/rft/filter_traces.sh
+##   # PREFER_TIME=1 lets a faster SFT text trace beat a slow GRPO latent trace on GRPO's
+##   # slow prompts (pick fastest correct trace, not shortest-by-tokens):
+##   PREFER_TIME=1 TRACES="<grpo>_traces.jsonl <sft>_traces.jsonl" bash train/rft/filter_traces.sh
 
 CONDA_ENV=${CONDA_ENV:-dna_env}
 TRACES=${TRACES:-}
@@ -22,6 +25,11 @@ REQUIRE_LATENT=${REQUIRE_LATENT:-0}
 ## times so the self-adaptive SFT weights it more. RARE_MAX_PROMPTS=0 disables.
 RARE_MAX_PROMPTS=${RARE_MAX_PROMPTS:-2}
 RARE_OVERSAMPLE=${RARE_OVERSAMPLE:-3}
+## PREFER_TIME=1 selects the FASTEST correct trace per prompt (by gen_time_sec) instead of
+## the shortest-by-tokens latent trace, so a faster SFT text trace can beat a slow GRPO
+## latent trace on GRPO's slow prompts (see select_sft_targets.py). Default 0 keeps the
+## latent-first, shortest-tokens selection.
+PREFER_TIME=${PREFER_TIME:-0}
 
 if [ -z "$TRACES" ]; then
     echo "ERROR: set TRACES=<...>_traces.jsonl (output of train/rft/sample_traces.sh)"
@@ -47,8 +55,9 @@ ARGS=(--traces $TRACES --out "$OUT")
 [ "$REQUIRE_LATENT" = "1" ] && ARGS+=(--require_latent)
 [ -n "$RARE_MAX_PROMPTS" ] && ARGS+=(--rare_max_prompts "$RARE_MAX_PROMPTS")
 [ -n "$RARE_OVERSAMPLE" ] && ARGS+=(--rare_oversample "$RARE_OVERSAMPLE")
+[ "$PREFER_TIME" = "1" ] && ARGS+=(--prefer_time)
 
-echo "Filtering $TRACES -> $OUT  (max_words=$MAX_WORDS require_latent=$REQUIRE_LATENT rare<=$RARE_MAX_PROMPTS x$RARE_OVERSAMPLE)"
+echo "Filtering $TRACES -> $OUT  (max_words=$MAX_WORDS require_latent=$REQUIRE_LATENT rare<=$RARE_MAX_PROMPTS x$RARE_OVERSAMPLE prefer_time=$PREFER_TIME)"
 python train/rft/build_rft_dataset.py "${ARGS[@]}"
 
 echo ""
