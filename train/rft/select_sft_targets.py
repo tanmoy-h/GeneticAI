@@ -104,6 +104,50 @@ def main():
         for i in targets:
             f.write(f"{i}\n")
 
+    # ── Per-disease correctness frequency ─────────────────────────────────────
+    # How often GRPO gets each disease right — both at the prompt level (fraction of a
+    # disease's prompts with >=1 correct well-formed trace) and the pass level (fraction of
+    # all its sampled completions that were correct). This is the accuracy-based companion
+    # to raw label frequency: a LOW correct-frequency disease needs SFT help even if it is
+    # common (e.g. colorectal cancer), which the rare-frequency proxy would miss.
+    miss_idx = set(miss)
+    slow_idx = set(i for i, _ in slow)
+    dis = defaultdict(lambda: {"prompts": set(), "correct_prompts": set(),
+                               "passes": 0, "correct_passes": 0,
+                               "miss": 0, "slow": 0, "times": []})
+    for idx, recs in by_index.items():
+        name = (recs[0].get("ground_truth", "") or "").strip().lower()
+        st = dis[name]
+        st["prompts"].add(idx)
+        cwf = correct_wf(recs)
+        if cwf:
+            st["correct_prompts"].add(idx)
+        for r in recs:
+            st["passes"] += 1
+            if r.get("is_correct") and is_well_formed(r.get("full_generation", "")):
+                st["correct_passes"] += 1
+            t = r.get("gen_time_sec")
+            if isinstance(t, (int, float)) and t > 0:
+                st["times"].append(float(t))
+        if idx in miss_idx:
+            st["miss"] += 1
+        if idx in slow_idx:
+            st["slow"] += 1
+    dis_rows = []
+    for name, st in dis.items():
+        npr = len(st["prompts"]); ncp = len(st["correct_prompts"])
+        prompt_frac = ncp / npr if npr else 0.0
+        pass_frac   = st["correct_passes"] / st["passes"] if st["passes"] else 0.0
+        avg_t       = sum(st["times"]) / len(st["times"]) if st["times"] else 0.0
+        dis_rows.append((name, npr, ncp, prompt_frac, pass_frac, st["miss"], st["slow"], avg_t))
+    dis_rows.sort(key=lambda r: (r[3], r[4], r[1]))     # weakest correctness first
+    dis_report = args.out_indices + ".diseasereport.csv"
+    with open(dis_report, "w", encoding="utf-8") as f:
+        f.write("disease,prompts,correct_prompts,prompt_correct_frac,"
+                "pass_correct_frac,miss,slow,avg_time_sec\n")
+        for name, npr, ncp, pf, paf, ms, sl, at in dis_rows:
+            f.write(f"\"{name}\",{npr},{ncp},{pf:.3f},{paf:.3f},{ms},{sl},{at:.2f}\n")
+
     # ── Optional: mark the GRPO outputs slower than average ───────────────────
     if args.out_marked:
         with open(args.out_marked, "w", encoding="utf-8") as f:
@@ -131,6 +175,14 @@ def main():
         print("  slowest correct prompts (idx: best_correct_time):")
         for idx, t in slow[:15]:
             print(f"    {idx:>5d}: {t:.2f}s")
+
+    weak = [r for r in dis_rows if r[3] < 1.0]
+    print(f"\n  Per-disease correctness -> {dis_report}")
+    print(f"  diseases with < 100% prompt correctness: {len(weak)}/{len(dis_rows)}")
+    if weak:
+        print("  weakest (disease: correct_prompts/prompts, pass_frac, miss/slow):")
+        for name, npr, ncp, pf, paf, ms, sl, at in weak[:20]:
+            print(f"    {name:<42s} {ncp}/{npr} ({pf:.2f})  pass={paf:.2f}  miss={ms} slow={sl}")
 
 
 if __name__ == "__main__":
