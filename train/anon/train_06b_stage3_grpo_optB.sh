@@ -187,10 +187,17 @@ args=(
     ## theta_low is optimised by sliding-window SPSA on the reward (fixes the
     ## zero-signal REINFORCE + removes theta grad-sync/deadlock). Search starts
     ## after the latent warmup+ramp. --latentSp_theta_low is the search START value.
+    ## Retuned after the first run showed theta random-walking 0.05<->1.8 and collapsing
+    ## to the floor (latents off): the batch-reward noise (std ~2.6) swamped delta=0.1.
+    ## Fix = std-normalised advantage + bigger delta + smaller lr + bigger window +
+    ## per-step clip + a LATENT-FIRING BAND [min,max] theta can't leave.
     --theta_search           True
-    --theta_search_delta     0.1
-    --theta_search_lr        0.02
-    --theta_search_window    30
+    --theta_search_delta     0.3
+    --theta_search_lr        0.005
+    --theta_search_window    80
+    --theta_search_min       0.6
+    --theta_search_max       1.0
+    --theta_search_max_step  0.02
 
     ## GRPO
     --num_generations        8

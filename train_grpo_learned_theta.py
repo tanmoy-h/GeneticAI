@@ -118,16 +118,37 @@ class GRPOScriptArgumentsOptB(GRPOScriptArgumentsW9):
                           "theta_loss. Also removes theta_low's autograd param group / grad-sync."},
     )
     theta_search_delta: float = field(
-        default=0.1,
-        metadata={"help": "SPSA perturbation size (±) applied to theta_low each step."},
+        default=0.3,
+        metadata={"help": "SPSA perturbation size (±) applied to theta_low each step. "
+                          "Larger = better signal-to-noise vs the batch-reward noise "
+                          "(the 1/delta amplification of noise shrinks too)."},
     )
     theta_search_lr: float = field(
-        default=0.02,
-        metadata={"help": "SPSA step size for the theta_low update."},
+        default=0.005,
+        metadata={"help": "SPSA step size for the theta_low update (theta-units, since the "
+                          "advantage is std-normalised). Small so the windowed signal "
+                          "accumulates instead of chasing per-batch noise."},
     )
     theta_search_window: int = field(
-        default=30,
-        metadata={"help": "Sliding-window size (steps) for the SPSA reward baseline + gradient."},
+        default=80,
+        metadata={"help": "Sliding-window size (steps) for the SPSA reward baseline + gradient. "
+                          "Larger averages out more of the per-prompt reward noise."},
+    )
+    theta_search_min: float = field(
+        default=0.6,
+        metadata={"help": "Lower bound of the theta_low FIRING BAND. theta is clamped here so "
+                          "it cannot collapse to the floor (latents off) — the reward gradient "
+                          "always pulls toward fewer latents, so this band keeps latents firing."},
+    )
+    theta_search_max: float = field(
+        default=1.0,
+        metadata={"help": "Upper bound of the theta_low firing band (prevents over-firing / the "
+                          "accuracy crash seen at theta~1.8)."},
+    )
+    theta_search_max_step: float = field(
+        default=0.02,
+        metadata={"help": "Max |change| to theta_low per update. Hard cap so no single noisy "
+                          "batch can jump theta across the band."},
     )
     disable_latents: bool = field(
         default=False,
@@ -255,12 +276,26 @@ class LatentSpControllerOptB(nn.Module):
         return sign
 
     def sliding_window_update(self, sign: float, reward: float, lr: float,
-                              delta: float, window: int, warmup_done: bool):
+                              delta: float, window: int, warmup_done: bool,
+                              theta_min: float = 0.6, theta_max: float = 1.0,
+                              max_step: float = 0.02):
         """SPSA update of theta_low_param from a sliding window of (sign, reward),
         with a windowed baseline (subtract the window-mean reward) for variance
         reduction — the 'advantage'. Since inputs (gathered reward + step-seeded sign)
         are identical across ranks, every rank performs the SAME scalar update, so
-        theta_low_param stays in lock-step with NO collective."""
+        theta_low_param stays in lock-step with NO collective.
+
+        Three stabilisers make it robust to the large batch-reward noise (std ~2.6,
+        from per-prompt correctness variance) that otherwise swamps the ±delta signal
+        and lets theta random-walk across the whole range:
+          1. std-normalised advantage — divide by the window reward std so the update
+             is invariant to reward scale (lr is then in theta-units, not reward-units);
+          2. per-step clip to ±max_step — no single noisy batch can jump theta far;
+          3. clamp to [theta_min, theta_max] — a LATENT-FIRING band, so theta can
+             neither collapse to the floor (latents off) nor blow up (over-firing).
+        The reward gradient w.r.t. theta points toward fewer latents (correctness
+        dominates), so the band is what keeps latents firing; the search only refines
+        within it (the eval sweep found 0.5–0.8 all ~0.95, so the band is safe)."""
         self._reward_window.append((float(sign), float(reward)))
         if len(self._reward_window) > window:
             self._reward_window.pop(0)
@@ -268,11 +303,15 @@ class LatentSpControllerOptB(nn.Module):
             return
         rs   = [r for _, r in self._reward_window]
         base = sum(rs) / len(rs)                                  # windowed baseline
+        var  = sum((r - base) ** 2 for r in rs) / len(rs)
+        std  = max(var ** 0.5, 1e-6)                              # reward-scale normaliser
         g    = (sum(s * (r - base) for s, r in self._reward_window)
-                / len(self._reward_window) / max(float(delta), 1e-6))
+                / len(self._reward_window) / std / max(float(delta), 1e-6))
+        step = float(lr) * g
+        step = max(-float(max_step), min(float(max_step), step))  # bound the per-step move
         with torch.no_grad():
-            self.theta_low_param.add_(float(lr) * g)
-            self.theta_low_param.clamp_(0.05, 8.0)
+            self.theta_low_param.add_(step)
+            self.theta_low_param.clamp_(float(theta_min), float(theta_max))
 
     def reset_row_decisions(self, batch_size: int):
         """Begin per-completion decision tracking for a batch of `batch_size` rollouts
@@ -438,14 +477,19 @@ class ThetaSlidingWindowCallback(TrainerCallback):
     """
 
     def __init__(self, ctrl: "LatentSpControllerOptB", warmup_steps: int,
-                 delta: float, lr: float, window: int):
-        self._ctrl   = ctrl
-        self.warmup  = warmup_steps
-        self.delta   = float(delta)
-        self.lr      = float(lr)
-        self.window  = int(window)
-        self.trainer = None       # set after trainer construction in main()
-        self._sign   = 1.0
+                 delta: float, lr: float, window: int,
+                 theta_min: float = 0.6, theta_max: float = 1.0,
+                 max_step: float = 0.02):
+        self._ctrl     = ctrl
+        self.warmup    = warmup_steps
+        self.delta     = float(delta)
+        self.lr        = float(lr)
+        self.window    = int(window)
+        self.theta_min = float(theta_min)
+        self.theta_max = float(theta_max)
+        self.max_step  = float(max_step)
+        self.trainer   = None       # set after trainer construction in main()
+        self._sign     = 1.0
 
     def on_step_begin(self, args, state, control, **kwargs):
         self._sign = self._ctrl.set_perturbation(state.global_step, self.delta)
@@ -457,7 +501,8 @@ class ThetaSlidingWindowCallback(TrainerCallback):
             return
         warmup_done = state.global_step >= self.warmup
         self._ctrl.sliding_window_update(
-            self._sign, hist[-1], self.lr, self.delta, self.window, warmup_done
+            self._sign, hist[-1], self.lr, self.delta, self.window, warmup_done,
+            theta_min=self.theta_min, theta_max=self.theta_max, max_step=self.max_step,
         )
 
 
@@ -965,9 +1010,14 @@ def main(script_args, training_args, model_args):
             delta        = script_args.theta_search_delta,
             lr           = script_args.theta_search_lr,
             window       = script_args.theta_search_window,
+            theta_min    = script_args.theta_search_min,
+            theta_max    = script_args.theta_search_max,
+            max_step     = script_args.theta_search_max_step,
         )
         print(f"[OptB] theta_search ON: SPSA delta={script_args.theta_search_delta} "
               f"lr={script_args.theta_search_lr} window={script_args.theta_search_window} "
+              f"band=[{script_args.theta_search_min},{script_args.theta_search_max}] "
+              f"max_step={script_args.theta_search_max_step} "
               f"(REINFORCE theta_loss + theta grad-sync disabled)")
 
     trainer = ThinkingResidualGRPOTrainer_OptB(
