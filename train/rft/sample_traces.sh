@@ -62,6 +62,10 @@ RARE_MAX_PROMPTS=${RARE_MAX_PROMPTS:-2}
 ## miss+slow targets from select_sft_targets.py so the SFT covers GRPO's actual failures
 ## and slow prompts, not a frequency proxy. Takes precedence over RARE_ONLY.
 ONLY_INDICES=${ONLY_INDICES:-}
+## RESUME=1 -> resume a dropped run: records stream to <prefix>_traces.part*.jsonl as they
+## complete, so a crash keeps all progress; RESUME=1 skips the (index,pass) already done and
+## finishes the rest. Re-run the SAME command with RESUME=1 and the SAME OUTPUT_PREFIX.
+RESUME=${RESUME:-0}
 
 ## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED — unless
 ## SFT_BEST=1, which auto-resolves the ACCURACY-best Stage-1.51 checkpoint (the same
@@ -167,6 +171,7 @@ if [ -n "$ONLY_INDICES" ]; then                      # explicit targets win over
 elif [ "$RARE_ONLY" = "1" ]; then
     EXTRA+=(--rare_max_prompts "$RARE_MAX_PROMPTS")   # rare tail only
 fi
+[ "$RESUME" = "1" ] && EXTRA+=(--resume)             # skip (index,pass) already streamed
 [ -n "$THETA_LOW_PT" ] && [ -f "$THETA_LOW_PT" ] && EXTRA+=(--theta_low_pt "$THETA_LOW_PT")
 [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA+=(--dna_cache "$DNA_CACHE")
 [ -n "$STAGE2_DIR" ] && EXTRA+=(--stage2_dir "$STAGE2_DIR")

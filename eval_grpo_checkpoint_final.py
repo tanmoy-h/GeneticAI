@@ -128,6 +128,13 @@ def parse_args():
                         "list) to sample EXCLUSIVELY — e.g. the GRPO miss/slow targets "
                         "from select_sft_targets.py. Takes precedence over "
                         "--rare_max_prompts. Original indices preserved for RFT alignment.")
+    p.add_argument("--resume",             action="store_true",
+                   help="Resume a dropped sampling run: skip (index, pass) pairs already "
+                        "present in the per-rank partial files (<prefix>_traces.part*.jsonl) "
+                        "and append the rest. Combine with the SAME --output_prefix.")
+    p.add_argument("--no_stream",          action="store_true",
+                   help="Disable incremental per-record streaming to the partial files "
+                        "(results are then only written once at the end — old behavior).")
 
     # Model architecture — must match training
     p.add_argument("--text_model_name",       default="Qwen/Qwen3-1.7B")
@@ -660,6 +667,47 @@ def main():
     # ── Run generation ────────────────────────────────────────────────────────
     if rank == 0:
         print(f"\nRunning generation on {len(my_records)} samples (rank 0)...")
+
+    # ── Crash-safe streaming + resume ─────────────────────────────────────────
+    # Each rank appends every completed record to its own partial file as it goes (flushed),
+    # so a dropped run keeps all progress. --resume reads the partials to skip (index, pass)
+    # pairs already done. Only successful records are streamed (errors are retried on resume).
+    import glob as _glob
+    os.makedirs(args.output_dir, exist_ok=True)
+    _stream_prefix = args.output_prefix or f"stage3_w9_{os.path.basename(args.checkpoint.rstrip('/'))}"
+    partial_glob   = os.path.join(args.output_dir, f"{_stream_prefix}_traces.part*.jsonl")
+    partial_path   = os.path.join(args.output_dir, f"{_stream_prefix}_traces.part{rank}.jsonl")
+    _stream_enabled = not getattr(args, "no_stream", False)
+    _resume         = getattr(args, "resume", False)
+    _partial_f, _done = None, set()
+    if _stream_enabled:
+        if _resume:
+            for pf in _glob.glob(partial_glob):
+                with open(pf, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rr = json.loads(line)
+                        except Exception:
+                            continue
+                        _done.add((rr.get("index"), rr.get("pass", 0)))
+            if rank == 0:
+                print(f"  Resume: {len(_done)} (index,pass) already done — skipping them.")
+        else:
+            # fresh run: rank 0 clears ALL stale partials for this prefix (any prior
+            # world_size) so the final merge can't pick up stale shards; then barrier.
+            if rank == 0:
+                for pf in _glob.glob(partial_glob):
+                    try:
+                        os.remove(pf)
+                    except OSError:
+                        pass
+            if world_size > 1 and dist.is_initialized():
+                dist.barrier()
+        _partial_f = open(partial_path, "a" if _resume else "w", encoding="utf-8")
+
     local_results = []
     for i, sample in enumerate(my_records):
         # Original full-split position (survives the rare-only subset). Falls back to the
@@ -670,6 +718,8 @@ def main():
             # sample_passes=1 (default) preserves the original single-pass eval behavior.
             _n_passes = max(1, getattr(args, "sample_passes", 1))
             for _pass in range(_n_passes):
+                if (global_idx, _pass) in _done:      # already sampled in a prior run
+                    continue
                 t0 = time.perf_counter()
                 text, gen_meta = generate_answer(model, sample, args, device)
                 gen_time = time.perf_counter() - t0
@@ -701,7 +751,7 @@ def main():
                     f"time={gen_time:.2f}s  tok={gen_len}",
                     flush=True,
                 )
-                local_results.append({
+                _rec = {
                     "index":             global_idx,
                     "pass":              _pass,
                     "split":             sample.get("_split", args.split),
@@ -715,7 +765,11 @@ def main():
                     "gen_length_tokens": gen_len,
                     "gen_time_sec":      round(gen_time, 3),
                     "full_generation":   text,
-                })
+                }
+                local_results.append(_rec)
+                if _partial_f is not None:            # crash-safe: persist immediately
+                    _partial_f.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+                    _partial_f.flush()
         except Exception as exc:
             print(f"[rank{rank} {i+1}/{len(my_records)}] ERROR: {exc}", flush=True)
             local_results.append({
@@ -732,11 +786,33 @@ def main():
                 "full_generation":  f"ERROR: {exc}",
             })
 
+    if _partial_f is not None:
+        _partial_f.close()
+
     # ── Gather across GPUs → rank 0 ───────────────────────────────────────────
     results = gather_results(local_results, device)
     if rank != 0:
         return
-    results.sort(key=lambda r: r["index"])
+
+    # When streaming, the authoritative set is the union of ALL partial files (this run +
+    # any prior resumed run, across all ranks), deduped by (index, pass). This makes the
+    # final _traces.jsonl / metrics complete even on a --resume run whose in-memory
+    # results only cover the newly-sampled records.
+    if _stream_enabled:
+        merged = {(r.get("index"), r.get("pass", 0)): r for r in results}
+        for pf in sorted(_glob.glob(partial_glob)):
+            with open(pf, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rr = json.loads(line)
+                    except Exception:
+                        continue
+                    merged[(rr.get("index"), rr.get("pass", 0))] = rr
+        results = list(merged.values())
+    results.sort(key=lambda r: (r["index"], r.get("pass", 0)))
 
     # ── Compute metrics ───────────────────────────────────────────────────────
     metrics = compute_metrics(results)
