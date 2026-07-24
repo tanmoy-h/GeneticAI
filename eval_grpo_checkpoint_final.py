@@ -117,6 +117,12 @@ def parse_args():
                    help="RFT sampling: generate this many completions per sample "
                         "(use with --temperature > 0). Each pass is emitted as its own "
                         "record (same index) for downstream filtering.")
+    p.add_argument("--rare_max_prompts",   type=int,   default=0,
+                   help="If > 0, sample ONLY prompts whose ground-truth disease occurs "
+                        "<= this many times in the split (the rare tail). Original split "
+                        "indices are preserved so the traces still align in the RFT "
+                        "filter / load_rft_rows. Use for the SFT rare-coverage source so "
+                        "it samples ~the rare prompts instead of the full split.")
 
     # Model architecture — must match training
     p.add_argument("--text_model_name",       default="Qwen/Qwen3-1.7B")
@@ -331,6 +337,30 @@ def load_eval_records(args, rank=0):
                 records.append(item)
         elif rank == 0:
             print(f"WARNING: split '{sp}' not found in dataset")
+
+    # Tag each record with its ORIGINAL position in the (unshuffled) split order. This is
+    # the alignment key written as `index` in the traces and re-joined by the RFT filter /
+    # load_rft_rows. Assigned BEFORE any subsetting so a rare-only subset keeps the true
+    # full-split indices (and with no subset it equals the old rank+i*world_size value).
+    for k, r in enumerate(records):
+        r["_orig_index"] = k
+
+    # Rare-disease subset (SFT rare-coverage source): keep only prompts whose ground-truth
+    # disease occurs <= rare_max_prompts times in this split — the rare tail the GRPO
+    # checkpoint misses. Common classes come from the GRPO run, so sampling them here is
+    # wasted; this cuts the run to ~the rare prompts. Original indices are preserved above.
+    rare_max = int(getattr(args, "rare_max_prompts", 0) or 0)
+    if rare_max > 0:
+        from collections import Counter
+        def _dis(r):
+            return (r.get("answer", "") or "").strip().lower()
+        freq = Counter(_dis(r) for r in records)
+        kept = [r for r in records if freq[_dis(r)] <= rare_max]
+        if rank == 0:
+            n_rare_classes = sum(1 for _, c in freq.items() if c <= rare_max)
+            print(f"  Rare-only subset: kept {len(kept)}/{len(records)} prompts "
+                  f"from {n_rare_classes} diseases with <= {rare_max} prompts.")
+        records = kept
 
     if args.n_samples > 0:
         random.seed(args.seed)
@@ -612,7 +642,9 @@ def main():
         print(f"\nRunning generation on {len(my_records)} samples (rank 0)...")
     local_results = []
     for i, sample in enumerate(my_records):
-        global_idx = rank + i * world_size
+        # Original full-split position (survives the rare-only subset). Falls back to the
+        # stride formula for any record lacking the tag (equivalent when no subset applied).
+        global_idx = sample.get("_orig_index", rank + i * world_size)
         try:
             # RFT sampling: N completions per sample (each its own record, same index).
             # sample_passes=1 (default) preserves the original single-pass eval behavior.

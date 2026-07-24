@@ -52,6 +52,12 @@ MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 ## it reproduces the SFT's latent-free native accuracy (the rare-disease strength we
 ## want) instead of re-inserting the latents that erode rare cases. Leave 0 for GRPO.
 NO_LATENT=${NO_LATENT:-0}
+## RARE_ONLY=1 -> sample ONLY the rare tail (diseases with <= RARE_MAX_PROMPTS prompts in
+## the split), preserving original indices. The common classes come from the GRPO run, so
+## the SFT source needs only the rare prompts -> ~1159 prompts drops to ~the rare handful,
+## an ~8x shorter run. Auto-enabled by SFT_BEST=1. RARE_MAX_PROMPTS matches the filter's.
+RARE_ONLY=${RARE_ONLY:-0}
+RARE_MAX_PROMPTS=${RARE_MAX_PROMPTS:-2}
 
 ## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED — unless
 ## SFT_BEST=1, which auto-resolves the ACCURACY-best Stage-1.51 checkpoint (the same
@@ -105,8 +111,9 @@ except Exception:
     ## the pointers store .../model.pt; the sampler wants the containing directory
     CKPT=$(dirname "$_STAGE1_CKPT")
     NO_LATENT=1                                   # SFT source is always sampled latent-free
+    RARE_ONLY=${RARE_ONLY:-1}                     # and only the rare tail (common = GRPO's job)
     OUTPUT_PREFIX=${OUTPUT_PREFIX:-rft_sample_sft}
-    echo "SFT_BEST resolved -> CKPT=$CKPT (NO_LATENT=1, prefix=$OUTPUT_PREFIX)"
+    echo "SFT_BEST resolved -> CKPT=$CKPT (NO_LATENT=1, RARE_ONLY=$RARE_ONLY, prefix=$OUTPUT_PREFIX)"
 fi
 
 if [ -z "$CKPT" ]; then
@@ -132,6 +139,7 @@ exec > >(tee "$LOG") 2>&1
 echo "Command:      bash $0 $*"
 echo "Checkpoint:   $CKPT"
 echo "Passes:       $SAMPLE_PASSES  temp=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K"
+echo "Mode:         NO_LATENT=$NO_LATENT  RARE_ONLY=$RARE_ONLY (<=$RARE_MAX_PROMPTS prompts/disease)"
 echo "Output:       $OUTPUT_DIR/${OUTPUT_PREFIX}_traces.jsonl"
 echo "GPUs:         $CUDA_VISIBLE_DEVICES ($NUM_GPUS)"
 nvidia-smi
@@ -146,6 +154,7 @@ fi
 ## Optional args
 EXTRA=()
 [ "$NO_LATENT" = "1" ] && EXTRA+=(--self_adaptive)   # latent-free (SFT rare-disease traces)
+[ "$RARE_ONLY" = "1" ] && EXTRA+=(--rare_max_prompts "$RARE_MAX_PROMPTS")  # rare tail only
 [ -n "$THETA_LOW_PT" ] && [ -f "$THETA_LOW_PT" ] && EXTRA+=(--theta_low_pt "$THETA_LOW_PT")
 [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA+=(--dna_cache "$DNA_CACHE")
 [ -n "$STAGE2_DIR" ] && EXTRA+=(--stage2_dir "$STAGE2_DIR")
