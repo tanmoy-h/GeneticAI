@@ -58,6 +58,10 @@ NO_LATENT=${NO_LATENT:-0}
 ## an ~8x shorter run. Auto-enabled by SFT_BEST=1. RARE_MAX_PROMPTS matches the filter's.
 RARE_ONLY=${RARE_ONLY:-0}
 RARE_MAX_PROMPTS=${RARE_MAX_PROMPTS:-2}
+## ONLY_INDICES=<file> -> sample EXACTLY those split indices (one int/line). Use the GRPO
+## miss+slow targets from select_sft_targets.py so the SFT covers GRPO's actual failures
+## and slow prompts, not a frequency proxy. Takes precedence over RARE_ONLY.
+ONLY_INDICES=${ONLY_INDICES:-}
 
 ## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED — unless
 ## SFT_BEST=1, which auto-resolves the ACCURACY-best Stage-1.51 checkpoint (the same
@@ -139,7 +143,11 @@ exec > >(tee "$LOG") 2>&1
 echo "Command:      bash $0 $*"
 echo "Checkpoint:   $CKPT"
 echo "Passes:       $SAMPLE_PASSES  temp=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K"
-echo "Mode:         NO_LATENT=$NO_LATENT  RARE_ONLY=$RARE_ONLY (<=$RARE_MAX_PROMPTS prompts/disease)"
+if [ -n "$ONLY_INDICES" ]; then
+    echo "Mode:         NO_LATENT=$NO_LATENT  ONLY_INDICES=$ONLY_INDICES ($(wc -l < "$ONLY_INDICES" 2>/dev/null) targets)"
+else
+    echo "Mode:         NO_LATENT=$NO_LATENT  RARE_ONLY=$RARE_ONLY (<=$RARE_MAX_PROMPTS prompts/disease)"
+fi
 echo "Output:       $OUTPUT_DIR/${OUTPUT_PREFIX}_traces.jsonl"
 echo "GPUs:         $CUDA_VISIBLE_DEVICES ($NUM_GPUS)"
 nvidia-smi
@@ -154,7 +162,11 @@ fi
 ## Optional args
 EXTRA=()
 [ "$NO_LATENT" = "1" ] && EXTRA+=(--self_adaptive)   # latent-free (SFT rare-disease traces)
-[ "$RARE_ONLY" = "1" ] && EXTRA+=(--rare_max_prompts "$RARE_MAX_PROMPTS")  # rare tail only
+if [ -n "$ONLY_INDICES" ]; then                      # explicit targets win over rare filter
+    EXTRA+=(--only_indices "$ONLY_INDICES")
+elif [ "$RARE_ONLY" = "1" ]; then
+    EXTRA+=(--rare_max_prompts "$RARE_MAX_PROMPTS")   # rare tail only
+fi
 [ -n "$THETA_LOW_PT" ] && [ -f "$THETA_LOW_PT" ] && EXTRA+=(--theta_low_pt "$THETA_LOW_PT")
 [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA+=(--dna_cache "$DNA_CACHE")
 [ -n "$STAGE2_DIR" ] && EXTRA+=(--stage2_dir "$STAGE2_DIR")

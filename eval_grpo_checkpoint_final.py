@@ -123,6 +123,11 @@ def parse_args():
                         "indices are preserved so the traces still align in the RFT "
                         "filter / load_rft_rows. Use for the SFT rare-coverage source so "
                         "it samples ~the rare prompts instead of the full split.")
+    p.add_argument("--only_indices",       type=str,   default=None,
+                   help="Path to a file of split indices (one int per line, or a JSON "
+                        "list) to sample EXCLUSIVELY — e.g. the GRPO miss/slow targets "
+                        "from select_sft_targets.py. Takes precedence over "
+                        "--rare_max_prompts. Original indices preserved for RFT alignment.")
 
     # Model architecture — must match training
     p.add_argument("--text_model_name",       default="Qwen/Qwen3-1.7B")
@@ -345,22 +350,37 @@ def load_eval_records(args, rank=0):
     for k, r in enumerate(records):
         r["_orig_index"] = k
 
-    # Rare-disease subset (SFT rare-coverage source): keep only prompts whose ground-truth
-    # disease occurs <= rare_max_prompts times in this split — the rare tail the GRPO
-    # checkpoint misses. Common classes come from the GRPO run, so sampling them here is
-    # wasted; this cuts the run to ~the rare prompts. Original indices are preserved above.
-    rare_max = int(getattr(args, "rare_max_prompts", 0) or 0)
-    if rare_max > 0:
-        from collections import Counter
-        def _dis(r):
-            return (r.get("answer", "") or "").strip().lower()
-        freq = Counter(_dis(r) for r in records)
-        kept = [r for r in records if freq[_dis(r)] <= rare_max]
+    # Explicit index subset (SFT targets: GRPO misses + slow prompts). Takes precedence
+    # over the rare-frequency subset. Original indices preserved above so alignment holds.
+    only_path = getattr(args, "only_indices", None)
+    if only_path:
+        with open(only_path, encoding="utf-8") as _f:
+            _txt = _f.read().strip()
+        if _txt.startswith("["):
+            want = set(int(x) for x in json.loads(_txt))
+        else:
+            want = set(int(x) for x in _txt.split() if x.strip())
+        kept = [r for r in records if r["_orig_index"] in want]
         if rank == 0:
-            n_rare_classes = sum(1 for _, c in freq.items() if c <= rare_max)
-            print(f"  Rare-only subset: kept {len(kept)}/{len(records)} prompts "
-                  f"from {n_rare_classes} diseases with <= {rare_max} prompts.")
+            print(f"  Only-indices subset: kept {len(kept)}/{len(records)} prompts "
+                  f"from {len(want)} requested indices ({only_path}).")
         records = kept
+    else:
+        # Rare-disease subset (SFT rare-coverage source): keep only prompts whose
+        # ground-truth disease occurs <= rare_max_prompts times in this split. Common
+        # classes come from the GRPO run, so sampling them here is wasted.
+        rare_max = int(getattr(args, "rare_max_prompts", 0) or 0)
+        if rare_max > 0:
+            from collections import Counter
+            def _dis(r):
+                return (r.get("answer", "") or "").strip().lower()
+            freq = Counter(_dis(r) for r in records)
+            kept = [r for r in records if freq[_dis(r)] <= rare_max]
+            if rank == 0:
+                n_rare_classes = sum(1 for _, c in freq.items() if c <= rare_max)
+                print(f"  Rare-only subset: kept {len(kept)}/{len(records)} prompts "
+                      f"from {n_rare_classes} diseases with <= {rare_max} prompts.")
+            records = kept
 
     if args.n_samples > 0:
         random.seed(args.seed)

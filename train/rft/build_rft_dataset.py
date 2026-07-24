@@ -47,12 +47,22 @@ def word_count(text: str) -> int:
     return len(text.split())
 
 
-def select_per_index(records, max_words=None, require_latent=False, is_rare=False):
+def select_per_index(records, max_words=None, require_latent=False, is_rare=False,
+                     prefer_time=False):
     """records: list of trace dicts sharing one index. Return the chosen dict or None.
 
     is_rare relaxes the filters so a rare class never loses its only correct trace:
     the word cap is skipped, and a text fallback is allowed even under require_latent.
+
+    prefer_time ranks correct candidates by measured gen_time_sec (fastest wins) instead
+    of token count — so a slow GRPO latent trace can lose to a faster SFT text trace on the
+    GRPO-slow prompts. Otherwise the shortest-by-tokens trace wins (the default).
     """
+    def _rank(r):
+        if prefer_time:
+            return r.get("gen_time_sec", r.get("gen_length_tokens", 1 << 30))
+        return r.get("gen_length_tokens", 1 << 30)
+
     # correct + well-formed candidates
     cands = [
         r for r in records
@@ -69,14 +79,20 @@ def select_per_index(records, max_words=None, require_latent=False, is_rare=Fals
         if capped:                       # only apply the cap if it leaves something
             cands = capped
 
+    # prefer_time: pick the fastest correct trace regardless of latent/text (speed is the
+    # objective). Otherwise prefer a latent trace, shortest by tokens.
+    if prefer_time:
+        best = min(cands, key=_rank)
+        return best, ("latent" if best.get("n_latent_emitted", 0) >= 1 else "text_fallback")
+
     latent = [r for r in cands if r.get("n_latent_emitted", 0) >= 1]
     if latent:
-        best = min(latent, key=lambda r: r.get("gen_length_tokens", 1 << 30))
+        best = min(latent, key=_rank)
         return best, "latent"
     if require_latent and not is_rare:   # rare classes always keep a text fallback
         return None, "no_correct_latent"
     # text fallback: shortest correct well-formed trace
-    best = min(cands, key=lambda r: r.get("gen_length_tokens", 1 << 30))
+    best = min(cands, key=_rank)
     return best, "text_fallback"
 
 
@@ -103,6 +119,10 @@ def main():
                    help="Duplicate each RARE class's kept rows this many times in the "
                         "output (1 = no oversampling). Counters flat-per-sample dilution "
                         "so the self-adaptive SFT weights rare diseases more.")
+    p.add_argument("--prefer_time", action="store_true",
+                   help="Select the FASTEST correct trace per prompt (by gen_time_sec) "
+                        "instead of the shortest-by-tokens latent trace. Lets a faster SFT "
+                        "text trace beat a slow GRPO latent trace on GRPO's slow prompts.")
     args = p.parse_args()
 
     by_index = defaultdict(list)
@@ -142,7 +162,7 @@ def main():
         rare = _is_rare(disease)
         best, why = select_per_index(
             recs, max_words=args.max_words, require_latent=args.require_latent,
-            is_rare=rare,
+            is_rare=rare, prefer_time=args.prefer_time,
         )
         reasons[why] += 1
         cs = class_stats[disease]
@@ -158,6 +178,7 @@ def main():
             "completion":        best["full_generation"],
             "n_latent_emitted":  best.get("n_latent_emitted", 0),
             "gen_length_tokens": best.get("gen_length_tokens", 0),
+            "gen_time_sec":      best.get("gen_time_sec", 0),
             "select_reason":     why,
             "rare":              rare,
             "source":            best.get("_source", ""),
