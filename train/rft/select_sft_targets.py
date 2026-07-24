@@ -88,21 +88,46 @@ def main():
         return out
 
     miss, slow, ok = [], [], []
+    prompt_rows = []      # per-record correctness frequency (each record sampled N passes)
     for idx, recs in by_index.items():
-        cwf = correct_wf(recs)
+        cwf      = correct_wf(recs)
+        n_passes = len(recs)
+        # correct passes count ALL correct + well-formed completions (before the word cap,
+        # so the fraction reflects raw model correctness); cwf applies the cap for targeting.
+        n_correct = sum(1 for r in recs
+                        if r.get("is_correct")
+                        and is_well_formed(r.get("full_generation", "")))
+        frac      = n_correct / n_passes if n_passes else 0.0
+        disease   = (recs[0].get("ground_truth", "") or "").strip().lower()
         if not cwf:
             miss.append(idx)
-            continue
-        best_time = min(r.get("gen_time_sec", 1e30) for r in cwf)
-        if best_time > avg_time:                 # even the fastest correct trace is slow
-            slow.append((idx, best_time))
+            best_time, category = 0.0, "miss"
         else:
-            ok.append(idx)
+            best_time = min(r.get("gen_time_sec", 1e30) for r in cwf)
+            if best_time > avg_time:             # even the fastest correct trace is slow
+                slow.append((idx, best_time))
+                category = "slow"
+            else:
+                ok.append(idx)
+                category = "ok"
+        prompt_rows.append((idx, disease, n_passes, n_correct, frac, category,
+                            round(best_time, 2)))
 
     targets = sorted(set(miss) | set(i for i, _ in slow))   # MISS + SLOW
     with open(args.out_indices, "w", encoding="utf-8") as f:
         for i in targets:
             f.write(f"{i}\n")
+
+    # ── Per-record correctness frequency (n correct of the N passes) ──────────
+    prompt_rows.sort(key=lambda r: (r[4], -r[2], r[0]))     # lowest correct-frac first
+    prompt_report = args.out_indices + ".promptreport.csv"
+    with open(prompt_report, "w", encoding="utf-8") as f:
+        f.write("index,disease,passes,correct_passes,correct_frac,category,best_correct_time_sec\n")
+        for idx, d, npa, nc, fr, cat, bt in prompt_rows:
+            f.write(f"{idx},\"{d}\",{npa},{nc},{fr:.3f},{cat},{bt}\n")
+    # distribution over correct-of-N (e.g. how many records were 0/4, 1/4, ... N/4)
+    from collections import Counter as _C
+    hist = _C((nc, npa) for _, _, npa, nc, _, _, _ in prompt_rows)
 
     # ── Per-disease correctness frequency ─────────────────────────────────────
     # How often GRPO gets each disease right — both at the prompt level (fraction of a
@@ -166,6 +191,10 @@ def main():
     print(f"  SLOW  (correct, but fastest > avg)   : {len(slow)}")
     print(f"  OK    (correct & fast, no SFT needed): {len(ok)}")
     print(f"  -> SFT targets (MISS + SLOW)         : {len(targets)}  -> {args.out_indices}")
+    # per-record correctness frequency: how many records were correct on k of their N passes
+    print(f"  Per-record correctness freq          -> {prompt_report}")
+    for (nc, npa), cnt in sorted(hist.items()):
+        print(f"    {nc}/{npa} passes correct: {cnt} records")
     if args.out_marked:
         n_slow_out = sum(1 for recs in by_index.values() for r in recs
                          if r.get("gen_time_sec", 0) > avg_time)
