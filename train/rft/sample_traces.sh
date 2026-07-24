@@ -24,12 +24,12 @@
 ## RARE-DISEASE SUPPLEMENT (Stage-1.51 SFT source): GRPO compresses away rare-class
 ## reasoning, so it produces no correct latent trace for rare diseases. Sample the SFT
 ## checkpoint too — it keeps rare classes right — and merge in the filter step:
-##   CKPT=<...>/train_04_stage1_51/best OUTPUT_PREFIX=rft_sample_sft \
-##     NO_LATENT=1 bash train/rft/sample_traces.sh [gpu_ids]
-##   NO_LATENT=1 samples latent-free (--self_adaptive) so we get the SFT's strong
-##   latent-free accuracy on rare classes, not the latent-inserted output that erodes
-##   them. thinking_gate.pt / dna_injector.pt auto-load from the SFT dir; no theta_low.pt
-##   needed (controller is skipped in this mode).
+##   SFT_BEST=1 bash train/rft/sample_traces.sh [gpu_ids]
+##   SFT_BEST=1 auto-resolves the ACCURACY-best Stage-1.51 checkpoint via the SAME chain
+##   as train_06b_stage3_grpo_optB.sh (stage151_eval_best_ckpt.txt -> test_04b eval JSON
+##   -> stage151_ckpt.txt), hands the sampler its directory, and forces NO_LATENT=1 so we
+##   capture the SFT's strong latent-free accuracy on rare classes (not the latent-inserted
+##   output that erodes them). Override with an explicit CKPT=<sNN_passMM dir> if needed.
 ##   Then: TRACES="<grpo>_traces.jsonl <sft>_traces.jsonl" bash train/rft/filter_traces.sh
 ##
 ## Cost: 1159 prompts x SAMPLE_PASSES generations. Use 2+ GPUs; drop SAMPLE_PASSES to 4
@@ -53,8 +53,11 @@ MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 ## want) instead of re-inserting the latents that erode rare cases. Leave 0 for GRPO.
 NO_LATENT=${NO_LATENT:-0}
 
-## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED.
+## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED — unless
+## SFT_BEST=1, which auto-resolves the ACCURACY-best Stage-1.51 checkpoint (the same
+## one train_06b_stage3_grpo_optB.sh starts from) for the rare-disease SFT source run.
 CKPT=${CKPT:-}
+SFT_BEST=${SFT_BEST:-0}
 THETA_LOW_PT=${THETA_LOW_PT:-}          # optional; auto-loads from CKPT/theta_low.pt if unset
 THETA_LOW=${THETA_LOW:-0.5}             # used if THETA_LOW_PT not set
 THETA_HIGH=${THETA_HIGH:-3.0}
@@ -62,8 +65,53 @@ DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg
 STAGE2_DIR=${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref}
 ## ─────────────────────────────────────────────────────────────────────────────
 
+## SFT_BEST=1: mirror train_06b_stage3_grpo_optB.sh's exact resolution chain to pick the
+## accuracy-best Stage-1.51 checkpoint, then hand the sampler its DIRECTORY (gate/injector
+## live alongside model.pt). Also flips on NO_LATENT (SFT should be sampled latent-free).
+if [ "$SFT_BEST" = "1" ] && [ -z "$CKPT" ]; then
+    _S151_DIR=${S151_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51}
+    _PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+    _STAGE1_CKPT=""
+    ## (2) deterministic accuracy-best pointer written by eval_stage1_51_checkpoints.py
+    if [ -f "$_S151_DIR/stage151_eval_best_ckpt.txt" ]; then
+        _STAGE1_CKPT=$(cat "$_S151_DIR/stage151_eval_best_ckpt.txt")
+        echo "SFT_BEST (from stage151_eval_best_ckpt.txt): $_STAGE1_CKPT"
+    fi
+    ## (3) best-accuracy from the latest test_04b eval JSON
+    if [ -z "$_STAGE1_CKPT" ]; then
+        _RESULTS_JSON=$(find "$_PROJECT_DIR/test/logs" -not -path "*/.*/*" \
+            -name "test_04b_eval_stage1_51_results_*.json" 2>/dev/null | sort -V | tail -1)
+        if [ -n "$_RESULTS_JSON" ]; then
+            _STAGE1_CKPT=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$_RESULTS_JSON')); print(d['best']['full_path'])
+except Exception:
+    sys.exit(1)
+" 2>/dev/null)
+            [ -n "$_STAGE1_CKPT" ] && echo "SFT_BEST (best accuracy from eval JSON): $_STAGE1_CKPT"
+        fi
+    fi
+    ## (4) fallback: val_loss best pointer
+    if [ -z "$_STAGE1_CKPT" ] && [ -f "$_S151_DIR/stage151_ckpt.txt" ]; then
+        _STAGE1_CKPT=$(cat "$_S151_DIR/stage151_ckpt.txt")
+        echo "SFT_BEST (fallback, best val_loss): $_STAGE1_CKPT"
+    fi
+    if [ -z "$_STAGE1_CKPT" ]; then
+        echo "ERROR: SFT_BEST=1 but no Stage-1.51 pointer/eval JSON found under $_S151_DIR."
+        echo "       Run test_04b_eval_stage1_51.sh first, or set CKPT=<sNN_passMM dir> explicitly."
+        exit 1
+    fi
+    ## the pointers store .../model.pt; the sampler wants the containing directory
+    CKPT=$(dirname "$_STAGE1_CKPT")
+    NO_LATENT=1                                   # SFT source is always sampled latent-free
+    OUTPUT_PREFIX=${OUTPUT_PREFIX:-rft_sample_sft}
+    echo "SFT_BEST resolved -> CKPT=$CKPT (NO_LATENT=1, prefix=$OUTPUT_PREFIX)"
+fi
+
 if [ -z "$CKPT" ]; then
     echo "ERROR: set CKPT=<healthy GRPO checkpoint dir where latents fire, e.g. checkpoint-772>"
+    echo "       or SFT_BEST=1 to auto-resolve the accuracy-best Stage-1.51 SFT checkpoint."
     exit 1
 fi
 
