@@ -24,10 +24,12 @@
 ## RARE-DISEASE SUPPLEMENT (Stage-1.51 SFT source): GRPO compresses away rare-class
 ## reasoning, so it produces no correct latent trace for rare diseases. Sample the SFT
 ## checkpoint too — it keeps rare classes right — and merge in the filter step:
-##   CKPT=<...>/train_04_stage1_51/s04_pass02 OUTPUT_PREFIX=rft_sample_sft \
-##     THETA_LOW=0.8 bash train/rft/sample_traces.sh [gpu_ids]
-##   theta_low.pt won't exist there -> falls back to THETA_LOW for the controller;
-##   thinking_gate.pt / dna_injector.pt still auto-load from the SFT dir.
+##   CKPT=<...>/train_04_stage1_51/best OUTPUT_PREFIX=rft_sample_sft \
+##     NO_LATENT=1 bash train/rft/sample_traces.sh [gpu_ids]
+##   NO_LATENT=1 samples latent-free (--self_adaptive) so we get the SFT's strong
+##   latent-free accuracy on rare classes, not the latent-inserted output that erodes
+##   them. thinking_gate.pt / dna_injector.pt auto-load from the SFT dir; no theta_low.pt
+##   needed (controller is skipped in this mode).
 ##   Then: TRACES="<grpo>_traces.jsonl <sft>_traces.jsonl" bash train/rft/filter_traces.sh
 ##
 ## Cost: 1159 prompts x SAMPLE_PASSES generations. Use 2+ GPUs; drop SAMPLE_PASSES to 4
@@ -45,6 +47,11 @@ TEMPERATURE=${TEMPERATURE:-0.7}
 TOP_P=${TOP_P:-0.95}
 TOP_K=${TOP_K:-50}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
+## NO_LATENT=1 -> latent-free sampling (--self_adaptive skips the entropy controller;
+## a non-self-emitting SFT then generates pure text). Use for the Stage-1.51 SFT run:
+## it reproduces the SFT's latent-free native accuracy (the rare-disease strength we
+## want) instead of re-inserting the latents that erode rare cases. Leave 0 for GRPO.
+NO_LATENT=${NO_LATENT:-0}
 
 ## Healthy GRPO checkpoint where latents fire (controller mode). REQUIRED.
 CKPT=${CKPT:-}
@@ -90,6 +97,7 @@ fi
 
 ## Optional args
 EXTRA=()
+[ "$NO_LATENT" = "1" ] && EXTRA+=(--self_adaptive)   # latent-free (SFT rare-disease traces)
 [ -n "$THETA_LOW_PT" ] && [ -f "$THETA_LOW_PT" ] && EXTRA+=(--theta_low_pt "$THETA_LOW_PT")
 [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA+=(--dna_cache "$DNA_CACHE")
 [ -n "$STAGE2_DIR" ] && EXTRA+=(--stage2_dir "$STAGE2_DIR")
