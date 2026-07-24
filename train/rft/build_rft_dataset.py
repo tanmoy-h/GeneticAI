@@ -26,6 +26,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
 from collections import defaultdict
 
@@ -82,7 +83,11 @@ def select_per_index(records, max_words=None, require_latent=False, is_rare=Fals
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--traces",  required=True, help="*_traces.jsonl from the sampler.")
+    p.add_argument("--traces",  required=True, nargs="+",
+                   help="One or more *_traces.jsonl from the sampler. Pass several to "
+                        "merge sources (e.g. GRPO traces + Stage-1.51 SFT traces): "
+                        "selection runs per prompt over the UNION, so a rare disease "
+                        "with no correct GRPO trace can be covered by an SFT one.")
     p.add_argument("--out",     required=True, help="Output selected-traces JSONL.")
     p.add_argument("--max_words", type=int, default=None,
                    help="Prefer completions <= this many words (soft; relaxed if it "
@@ -102,14 +107,19 @@ def main():
 
     by_index = defaultdict(list)
     n_lines = 0
-    with open(args.traces, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            r = json.loads(line)
-            by_index[r["index"]].append(r)
-            n_lines += 1
+    per_source = defaultdict(int)
+    for src in args.traces:
+        tag = os.path.basename(src)
+        with open(src, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                r.setdefault("_source", tag)      # remember which file a trace came from
+                by_index[r["index"]].append(r)
+                n_lines += 1
+                per_source[tag] += 1
 
     # Per-class prompt counts (needed BEFORE selection so rare classes get relaxed
     # filters). Diseases with <= rare_max_prompts prompts are rare.
@@ -150,6 +160,7 @@ def main():
             "gen_length_tokens": best.get("gen_length_tokens", 0),
             "select_reason":     why,
             "rare":              rare,
+            "source":            best.get("_source", ""),
         }
         # Oversample rare classes: emit the row `rare_oversample` times so the SFT
         # gradient weights the rare disease more (counters GRPO's flat-per-sample bias).
@@ -189,6 +200,15 @@ def main():
     n_text    = reasons.get("text_fallback", 0)
     n_rare_classes = sum(1 for d in prompts_per_disease if _is_rare(d))
     print(f"Read {n_lines} traces over {n_prompts} prompts")
+    if len(args.traces) > 1:
+        for tag, cnt in per_source.items():
+            print(f"  from {tag}: {cnt} traces")
+        # how many SELECTED rows came from each source (dedup rare oversampling)
+        sel_src = defaultdict(set)
+        for r in selected:
+            sel_src[r.get("source", "")].add(r["index"])
+        for tag, idxs in sel_src.items():
+            print(f"  selected from {tag}: {len(idxs)} prompts")
     print(f"Selected {len(selected)} rows -> {args.out}")
     print(f"  latent traces   : {n_latent}")
     print(f"  text fallback   : {n_text}")

@@ -6,6 +6,10 @@
 ## Usage:
 ##   TRACES=train/rft/samples/rft_sample_traces.jsonl bash train/rft/filter_traces.sh
 ##   TRACES=<..> OUT=<..> MAX_WORDS=350 REQUIRE_LATENT=1 bash train/rft/filter_traces.sh
+##   # merge GRPO + Stage-1.51 SFT traces (space-separated) so rare diseases with no
+##   # correct GRPO latent trace are covered by an SFT trace:
+##   TRACES="train/rft/samples/rft_sample_traces.jsonl train/rft/samples/rft_sample_sft_traces.jsonl" \
+##     bash train/rft/filter_traces.sh
 
 CONDA_ENV=${CONDA_ENV:-dna_env}
 TRACES=${TRACES:-}
@@ -21,18 +25,24 @@ RARE_OVERSAMPLE=${RARE_OVERSAMPLE:-3}
 
 if [ -z "$TRACES" ]; then
     echo "ERROR: set TRACES=<...>_traces.jsonl (output of train/rft/sample_traces.sh)"
+    echo "       (space-separate several files to merge sources, e.g. GRPO + SFT traces)"
     exit 1
 fi
-if [ ! -f "$TRACES" ]; then
-    echo "ERROR: TRACES not found: $TRACES"
-    exit 1
-fi
+## TRACES may be several space-separated files; verify each exists.
+for _t in $TRACES; do
+    if [ ! -f "$_t" ]; then
+        echo "ERROR: TRACES file not found: $_t"
+        exit 1
+    fi
+done
 
 module load MLDL/miniconda3 2>/dev/null || true
 conda activate $CONDA_ENV 2>/dev/null || true
 cd "$(dirname "$0")/../.."
 
-ARGS=(--traces "$TRACES" --out "$OUT")
+## $TRACES unquoted so multiple space-separated files expand to separate argv entries
+## (the builder's --traces takes nargs="+"). File paths must not contain spaces.
+ARGS=(--traces $TRACES --out "$OUT")
 [ -n "$MAX_WORDS" ] && ARGS+=(--max_words "$MAX_WORDS")
 [ "$REQUIRE_LATENT" = "1" ] && ARGS+=(--require_latent)
 [ -n "$RARE_MAX_PROMPTS" ] && ARGS+=(--rare_max_prompts "$RARE_MAX_PROMPTS")

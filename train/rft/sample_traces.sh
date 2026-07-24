@@ -21,6 +21,15 @@
 ##   (theta_low.pt / thinking_gate.pt / dna_injector.pt all auto-load from CKPT's dir;
 ##    only override THETA_LOW_PT to force a different learned threshold.)
 ##
+## RARE-DISEASE SUPPLEMENT (Stage-1.51 SFT source): GRPO compresses away rare-class
+## reasoning, so it produces no correct latent trace for rare diseases. Sample the SFT
+## checkpoint too — it keeps rare classes right — and merge in the filter step:
+##   CKPT=<...>/train_04_stage1_51/s04_pass02 OUTPUT_PREFIX=rft_sample_sft \
+##     THETA_LOW=0.8 bash train/rft/sample_traces.sh [gpu_ids]
+##   theta_low.pt won't exist there -> falls back to THETA_LOW for the controller;
+##   thinking_gate.pt / dna_injector.pt still auto-load from the SFT dir.
+##   Then: TRACES="<grpo>_traces.jsonl <sft>_traces.jsonl" bash train/rft/filter_traces.sh
+##
 ## Cost: 1159 prompts x SAMPLE_PASSES generations. Use 2+ GPUs; drop SAMPLE_PASSES to 4
 ## to halve time if needed.
 
