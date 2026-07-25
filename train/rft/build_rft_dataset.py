@@ -126,6 +126,11 @@ def main():
                         "the model barely rescued via best-of-N. Composes with "
                         "--rare_oversample via max(); k=3 -> up to 4 copies at 0 confidence. "
                         "GOLD-backfilled prompts (source _gold) are exempt and stay x1.")
+    p.add_argument("--gold_oversample", type=int, default=1,
+                   help="Flat copy count for GOLD-backfilled prompts (source _gold), the "
+                        "hardest 0/4 cases. Default 1 (x1, exempt from confidence oversampling "
+                        "to avoid memorizing a single hand-written reasoning). Raise to "
+                        "reinforce them (composes with rare via max()).")
     p.add_argument("--prefer_time", action="store_true",
                    help="Select the FASTEST correct trace per prompt (by gen_time_sec) "
                         "instead of the shortest-by-tokens latent trace. Lets a faster SFT "
@@ -167,6 +172,7 @@ def main():
     uncovered = []      # prompt indices with no correct well-formed trace from any source
     n_oversampled = 0
     n_conf_oversampled = 0
+    n_gold_oversampled = 0
     # Per-disease coverage: prompts seen, and how each resolved. `disease` comes from
     # any trace of the prompt (all passes share the same ground_truth).
     class_stats = defaultdict(lambda: {"prompts": 0, "latent": 0, "text": 0, "dropped": 0})
@@ -212,17 +218,23 @@ def main():
         #           prompt (barely rescued by best-of-N) gets firmed up instead of a lone demo.
         rare_copies = args.rare_oversample if (rare and args.rare_oversample > 1) else 1
         conf_copies = 1
-        # Confidence oversampling runs on MODEL traces only — gold-backfilled prompts
-        # (pass_frac ~0) stay at x1 so a single hand-written reasoning isn't duplicated
-        # into memorization. Equivalent to running the confidence pass before adding gold.
+        # Gold-backfilled prompts (pass_frac ~0, all model passes wrong) get a FLAT
+        # --gold_oversample multiplier instead of the confidence formula: they're a single
+        # hand-written reasoning, so the confidence rule's up-to-(k+1) copies risk
+        # memorization. Default 1 = x1 (exempt). Raise it to reinforce the hardest prompts.
+        # Model-trace prompts use confidence: copies = round(1 + k*(1-pass_frac)).
         is_gold = bool(best.get("_gold")) or ("gold" in best.get("_source", "").lower())
-        if args.confidence_oversample > 0 and not is_gold:
+        if is_gold:
+            conf_copies = max(1, int(args.gold_oversample))
+        elif args.confidence_oversample > 0:
             conf_copies = max(1, round(1 + args.confidence_oversample * (1.0 - pass_frac)))
         copies = max(rare_copies, conf_copies)
         for _ in range(copies):
             selected.append(row)
         n_oversampled += copies - 1
-        if conf_copies > rare_copies and conf_copies > 1:
+        if is_gold and conf_copies > rare_copies and conf_copies > 1:
+            n_gold_oversampled += conf_copies - 1
+        elif conf_copies > rare_copies and conf_copies > 1:
             n_conf_oversampled += conf_copies - 1
 
     selected.sort(key=lambda r: r["index"])
@@ -276,9 +288,14 @@ def main():
     if args.rare_max_prompts > 0:
         print(f"  rare classes    : {n_rare_classes}  (<= {args.rare_max_prompts} prompts; "
               f"filters relaxed, oversample x{args.rare_oversample})")
-    if args.rare_max_prompts > 0 or args.confidence_oversample > 0:
+    if args.rare_max_prompts > 0 or args.confidence_oversample > 0 or args.gold_oversample > 1:
+        _extra = []
+        if args.confidence_oversample > 0:
+            _extra.append(f"{n_conf_oversampled} from confidence k={args.confidence_oversample}")
+        if args.gold_oversample > 1:
+            _extra.append(f"{n_gold_oversampled} from gold x{args.gold_oversample}")
         print(f"  rows added by oversampling : {n_oversampled}"
-              f"{f' (of which {n_conf_oversampled} from confidence k={args.confidence_oversample})' if args.confidence_oversample > 0 else ''}")
+              f"{' (' + ', '.join(_extra) + ')' if _extra else ''}")
     print(f"  dropped         : {reasons.get('no_correct_wellformed', 0) + reasons.get('no_correct_latent', 0)}")
     if selected:
         avg_len = sum(r['gen_length_tokens'] for r in selected) / len(selected)
