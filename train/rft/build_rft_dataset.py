@@ -124,7 +124,8 @@ def main():
                         "where pass_frac is the fraction of a prompt's traces that were "
                         "correct+well-formed and k=this value (0 disables). Firms up prompts "
                         "the model barely rescued via best-of-N. Composes with "
-                        "--rare_oversample via max(); k=3 -> up to 4 copies at 0 confidence.")
+                        "--rare_oversample via max(); k=3 -> up to 4 copies at 0 confidence. "
+                        "GOLD-backfilled prompts (source _gold) are exempt and stay x1.")
     p.add_argument("--prefer_time", action="store_true",
                    help="Select the FASTEST correct trace per prompt (by gen_time_sec) "
                         "instead of the shortest-by-tokens latent trace. Lets a faster SFT "
@@ -211,7 +212,11 @@ def main():
         #           prompt (barely rescued by best-of-N) gets firmed up instead of a lone demo.
         rare_copies = args.rare_oversample if (rare and args.rare_oversample > 1) else 1
         conf_copies = 1
-        if args.confidence_oversample > 0:
+        # Confidence oversampling runs on MODEL traces only — gold-backfilled prompts
+        # (pass_frac ~0) stay at x1 so a single hand-written reasoning isn't duplicated
+        # into memorization. Equivalent to running the confidence pass before adding gold.
+        is_gold = bool(best.get("_gold")) or ("gold" in best.get("_source", "").lower())
+        if args.confidence_oversample > 0 and not is_gold:
             conf_copies = max(1, round(1 + args.confidence_oversample * (1.0 - pass_frac)))
         copies = max(rare_copies, conf_copies)
         for _ in range(copies):
