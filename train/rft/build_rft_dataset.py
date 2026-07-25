@@ -123,6 +123,10 @@ def main():
                    help="Select the FASTEST correct trace per prompt (by gen_time_sec) "
                         "instead of the shortest-by-tokens latent trace. Lets a faster SFT "
                         "text trace beat a slow GRPO latent trace on GRPO's slow prompts.")
+    p.add_argument("--dump_uncovered", default=None,
+                   help="Write the indices of prompts with NO correct well-formed trace "
+                        "(from any source) to this file — feed to build_gold_traces.py to "
+                        "backfill them with the KEGG dataset's own reasoning + answer.")
     args = p.parse_args()
 
     by_index = defaultdict(list)
@@ -153,6 +157,7 @@ def main():
 
     reasons  = defaultdict(int)
     selected = []
+    uncovered = []      # prompt indices with no correct well-formed trace from any source
     n_oversampled = 0
     # Per-disease coverage: prompts seen, and how each resolved. `disease` comes from
     # any trace of the prompt (all passes share the same ground_truth).
@@ -169,6 +174,7 @@ def main():
         cs["prompts"] += 1
         if best is None:
             cs["dropped"] += 1
+            uncovered.append(idx)
             continue
         cs["latent" if why == "latent" else "text"] += 1
         row = {
@@ -194,6 +200,11 @@ def main():
     with open(args.out, "w", encoding="utf-8") as f:
         for r in selected:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    if args.dump_uncovered:
+        with open(args.dump_uncovered, "w", encoding="utf-8") as f:
+            for i in sorted(uncovered):
+                f.write(f"{i}\n")
 
     # ── Per-class coverage report ─────────────────────────────────────────────
     # Full table to a CSV sidecar; problem classes (any drop, or fully text-fallback)
