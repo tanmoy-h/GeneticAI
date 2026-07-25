@@ -47,11 +47,13 @@ TEMPERATURE=${TEMPERATURE:-0.7}
 TOP_P=${TOP_P:-0.95}
 TOP_K=${TOP_K:-50}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
-## NO_LATENT=1 -> latent-free sampling (--self_adaptive skips the entropy controller;
-## a non-self-emitting SFT then generates pure text). Use for the Stage-1.51 SFT run:
-## it reproduces the SFT's latent-free native accuracy (the rare-disease strength we
-## want) instead of re-inserting the latents that erode rare cases. Leave 0 for GRPO.
+## NO_LATENT=1 -> latent-free sampling = CONTROLLER mode with theta floored (NO_LATENT_THETA,
+## default 0.01) so latents (near) never fire. Use for the Stage-1.51 SFT run: reproduces the
+## SFT's latent-banned native accuracy while still terminating correctly. (Do NOT use
+## --self_adaptive for the SFT: it never self-emits latents, so </think> is never closed, EOS
+## stays suppressed, and generation runs to max_new_tokens with an empty answer.) Leave 0 for GRPO.
 NO_LATENT=${NO_LATENT:-0}
+NO_LATENT_THETA=${NO_LATENT_THETA:-0.01}
 ## RARE_ONLY=1 -> sample ONLY the rare tail (diseases with <= RARE_MAX_PROMPTS prompts in
 ## the split), preserving original indices. The common classes come from the GRPO run, so
 ## the SFT source needs only the rare prompts -> ~1159 prompts drops to ~the rare handful,
@@ -118,7 +120,7 @@ except Exception:
     fi
     ## the pointers store .../model.pt; the sampler wants the containing directory
     CKPT=$(dirname "$_STAGE1_CKPT")
-    NO_LATENT=1                                   # SFT source is always sampled latent-free
+    NO_LATENT=${NO_LATENT:-1}                      # SFT latent-free = controller + floored theta (see below)
     RARE_ONLY=${RARE_ONLY:-1}                     # and only the rare tail (common = GRPO's job)
     ## Derive a DISTINCT SFT prefix from the base (which the config/anon-wrapper already set)
     ## so the SFT run never overwrites the GRPO traces: rft_sample -> rft_sample_sft,
@@ -171,7 +173,15 @@ fi
 
 ## Optional args
 EXTRA=()
-[ "$NO_LATENT" = "1" ] && EXTRA+=(--self_adaptive)   # latent-free (SFT rare-disease traces)
+## NO_LATENT=1 -> "latent-free" = CONTROLLER mode with theta floored so latents (near) never
+## fire. NOT --self_adaptive: a model that doesn't self-emit latents never closes </think> in
+## that mode, so EOS stays suppressed and it can't stop (runs to max_new_tokens with an EMPTY
+## answer). The Stage-1.51 SFT was trained WITH the controller, so controller-mode + low theta
+## reproduces its latent-banned native accuracy AND terminates correctly.
+if [ "$NO_LATENT" = "1" ]; then
+    THETA_LOW="${NO_LATENT_THETA:-0.01}"             # floor: controller (near) never inserts a latent
+    EXTRA+=(--no_theta_pt)                           # ignore any checkpoint theta_low.pt; use the floor
+fi
 if [ -n "$ONLY_INDICES" ]; then                      # explicit targets win over rare filter
     EXTRA+=(--only_indices "$ONLY_INDICES")
 elif [ "$RARE_ONLY" = "1" ]; then
