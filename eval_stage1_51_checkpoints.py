@@ -292,6 +292,7 @@ def evaluate_checkpoint(
     max_new_tokens: int = 400,
     gpu_tag:        str = "",
     print_samples:  int = 1,
+    allow_latent:   bool = False,
 ) -> Tuple[int, int, List[Tuple[str, str, bool, str, str]]]:
     """
     Load ckpt_path (+ its gate) into model, run greedy generation on sample_indices,
@@ -355,7 +356,12 @@ def evaluate_checkpoint(
                     do_sample            = False,   # greedy — deterministic, repeatable
                     pad_token_id         = pad_id,
                     eos_token_id         = stop_ids,
-                    bad_words_ids        = [[start_id], [end_id], [latent_id]],
+                    # Default: ban latent tokens (latent-free HF-generate eval, the
+                    # original test_04d behaviour). --allow_latent lifts the ban so a
+                    # latent-trained model can SELF-EMIT <start-latent>/<end-latent>
+                    # here (inert markers — no recycling/controller in this path).
+                    bad_words_ids        = (None if allow_latent
+                                            else [[start_id], [end_id], [latent_id]]),
                     stopping_criteria    = stop_criteria,
                 )
             total_gen_time += time.perf_counter() - _t0
@@ -431,6 +437,7 @@ def worker_fn(gpu_id: int, ckpt_paths: List[str], val_rows: List[dict],
                 max_new_tokens = args.max_new_tokens,
                 gpu_tag        = gpu_tag,
                 print_samples  = args.print_samples,
+                allow_latent   = args.allow_latent,
             )
             acc = n_correct / n_total if n_total else 0.0
             print(f"[{gpu_tag}] {label}: {acc:.4f} ({n_correct}/{n_total})  "
@@ -532,6 +539,7 @@ def main():
                 device, args.max_new_tokens,
                 print_samples=args.print_samples,
                 gpu_tag=f"GPU{active_gpus[0]}",
+                allow_latent=args.allow_latent,
             )
             acc = n_correct / n_total if n_total else 0.0
             print(f"  Accuracy: {acc:.4f}  ({n_correct}/{n_total})  "
@@ -732,6 +740,10 @@ def parse_args():
     p.add_argument("--truncate_dna_per_side", type=int, default=1024)
     p.add_argument("--print_samples",         type=int, default=1,
                    help="Print full generation text for first N samples per checkpoint (default: 1)")
+    p.add_argument("--allow_latent",          action="store_true",
+                   help="Lift the latent-token ban so a latent-trained model can SELF-EMIT "
+                        "<start-latent>/<end-latent> in this HF-generate path (inert markers; "
+                        "no recycling/controller). Default off = original latent-free eval.")
     p.add_argument("--results_json",          default=None,
                    help="Path to write ranked results as JSON (includes command + timestamp)")
     p.add_argument("--raw_csv",               default=None,

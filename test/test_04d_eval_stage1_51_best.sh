@@ -37,6 +37,10 @@ N_SAMPLES=${N_SAMPLES:-290}   # caps at split size; use a big number for "all"
 EVAL_SPLIT=${EVAL_SPLIT:-both}  # HF wanglab/kegg re-split too: val=144, test=146 -> both=290
 SEED=${SEED:-42}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
+## ALLOW_LATENT=1 lifts the latent-token ban so a latent-trained model (e.g. train_07
+## self-adaptive RFT) can SELF-EMIT <start-latent>/<end-latent> in this HF-generate path.
+## Default 0 = original latent-free eval (latents banned via bad_words_ids).
+ALLOW_LATENT=${ALLOW_LATENT:-0}
 _TS=$(date +%Y%m%d_%H%M%S)
 RESULTS_JSON=${RESULTS_JSON:-test/logs/test_04d_eval_stage1_51_best_results_${_TS}.json}
 RAW_CSV=${RAW_CSV:-test/logs/test_04d_eval_stage1_51_best_raw_${_TS}.csv}
@@ -151,11 +155,17 @@ else
     DNA_CACHE_ARG=""
 fi
 
+## Self-emit probe: lift the latent ban so a latent-trained model emits its own markers.
+LATENT_ARG=""
+[ "$ALLOW_LATENT" = "1" ] && LATENT_ARG="--allow_latent"
+echo "Allow latent:   $ALLOW_LATENT (self-emit ${ALLOW_LATENT:+on/off})"
+
 stdbuf -oL -eL python eval_stage1_51_checkpoints.py \
     --stage1_ckpt            "$STAGE1_CKPT" \
     --ckpt_dir               "$ISO_DIR" \
     $KEGG_ARG \
     $DNA_CACHE_ARG \
+    $LATENT_ARG \
     --gpus                   "$GPUS" \
     --n_samples              $N_SAMPLES \
     --eval_split             $EVAL_SPLIT \
