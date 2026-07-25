@@ -119,6 +119,12 @@ def main():
                    help="Duplicate each RARE class's kept rows this many times in the "
                         "output (1 = no oversampling). Counters flat-per-sample dilution "
                         "so the self-adaptive SFT weights rare diseases more.")
+    p.add_argument("--confidence_oversample", type=float, default=0.0,
+                   help="Oversample FRAGILE prompts: copies = round(1 + k*(1-pass_frac)), "
+                        "where pass_frac is the fraction of a prompt's traces that were "
+                        "correct+well-formed and k=this value (0 disables). Firms up prompts "
+                        "the model barely rescued via best-of-N. Composes with "
+                        "--rare_oversample via max(); k=3 -> up to 4 copies at 0 confidence.")
     p.add_argument("--prefer_time", action="store_true",
                    help="Select the FASTEST correct trace per prompt (by gen_time_sec) "
                         "instead of the shortest-by-tokens latent trace. Lets a faster SFT "
@@ -159,6 +165,7 @@ def main():
     selected = []
     uncovered = []      # prompt indices with no correct well-formed trace from any source
     n_oversampled = 0
+    n_conf_oversampled = 0
     # Per-disease coverage: prompts seen, and how each resolved. `disease` comes from
     # any trace of the prompt (all passes share the same ground_truth).
     class_stats = defaultdict(lambda: {"prompts": 0, "latent": 0, "text": 0, "dropped": 0})
@@ -177,6 +184,13 @@ def main():
             uncovered.append(idx)
             continue
         cs["latent" if why == "latent" else "text"] += 1
+        # Per-prompt confidence: fraction of this prompt's traces that were correct +
+        # well-formed. Low = the model was fragile (best-of-N barely rescued it).
+        n_pass    = len(recs)
+        n_ok      = sum(1 for r in recs
+                        if r.get("is_correct")
+                        and is_well_formed(r.get("full_generation", "")))
+        pass_frac = n_ok / n_pass if n_pass else 0.0
         row = {
             "index":             idx,
             "question":          best.get("question", ""),
@@ -187,14 +201,24 @@ def main():
             "gen_time_sec":      best.get("gen_time_sec", 0),
             "select_reason":     why,
             "rare":              rare,
+            "pass_frac":         round(pass_frac, 3),
             "source":            best.get("_source", ""),
         }
-        # Oversample rare classes: emit the row `rare_oversample` times so the SFT
-        # gradient weights the rare disease more (counters GRPO's flat-per-sample bias).
-        copies = args.rare_oversample if (rare and args.rare_oversample > 1) else 1
+        # Oversampling: emit the row multiple times so the SFT gradient weights the prompt
+        # more. Two mechanisms, combined via max() (no runaway product):
+        #   rare  — rare-disease protection (counters GRPO's flat-per-sample bias);
+        #   conf  — fragility: copies = round(1 + k*(1-pass_frac)), so a low-confidence
+        #           prompt (barely rescued by best-of-N) gets firmed up instead of a lone demo.
+        rare_copies = args.rare_oversample if (rare and args.rare_oversample > 1) else 1
+        conf_copies = 1
+        if args.confidence_oversample > 0:
+            conf_copies = max(1, round(1 + args.confidence_oversample * (1.0 - pass_frac)))
+        copies = max(rare_copies, conf_copies)
         for _ in range(copies):
             selected.append(row)
         n_oversampled += copies - 1
+        if conf_copies > rare_copies and conf_copies > 1:
+            n_conf_oversampled += conf_copies - 1
 
     selected.sort(key=lambda r: r["index"])
     with open(args.out, "w", encoding="utf-8") as f:
@@ -247,7 +271,9 @@ def main():
     if args.rare_max_prompts > 0:
         print(f"  rare classes    : {n_rare_classes}  (<= {args.rare_max_prompts} prompts; "
               f"filters relaxed, oversample x{args.rare_oversample})")
-        print(f"  rows added by oversampling : {n_oversampled}")
+    if args.rare_max_prompts > 0 or args.confidence_oversample > 0:
+        print(f"  rows added by oversampling : {n_oversampled}"
+              f"{f' (of which {n_conf_oversampled} from confidence k={args.confidence_oversample})' if args.confidence_oversample > 0 else ''}")
     print(f"  dropped         : {reasons.get('no_correct_wellformed', 0) + reasons.get('no_correct_latent', 0)}")
     if selected:
         avg_len = sum(r['gen_length_tokens'] for r in selected) / len(selected)

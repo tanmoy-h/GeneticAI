@@ -28,6 +28,11 @@ REQUIRE_LATENT=${REQUIRE_LATENT:-0}
 ## times so the self-adaptive SFT weights it more. RARE_MAX_PROMPTS=0 disables.
 RARE_MAX_PROMPTS=${RARE_MAX_PROMPTS:-2}
 RARE_OVERSAMPLE=${RARE_OVERSAMPLE:-3}
+## CONFIDENCE_OVERSAMPLE=k (>0) oversamples FRAGILE prompts: copies = round(1 + k*(1-pass_frac)),
+## where pass_frac is the fraction of a prompt's traces that were correct+well-formed. Firms up
+## prompts the model barely rescued via best-of-N (e.g. CJD pass_frac 0.16). Composes with rare
+## oversampling via max(). 0 disables. k=3 -> up to 4 copies at 0 confidence.
+CONFIDENCE_OVERSAMPLE=${CONFIDENCE_OVERSAMPLE:-0}
 ## PREFER_TIME=1 selects the FASTEST correct trace per prompt (by gen_time_sec) instead of
 ## the shortest-by-tokens latent trace, so a faster SFT text trace can beat a slow GRPO
 ## latent trace on GRPO's slow prompts (see select_sft_targets.py). Default 0 keeps the
@@ -63,6 +68,7 @@ ARGS=(--traces $TRACES --out "$OUT")
 [ "$REQUIRE_LATENT" = "1" ] && ARGS+=(--require_latent)
 [ -n "$RARE_MAX_PROMPTS" ] && ARGS+=(--rare_max_prompts "$RARE_MAX_PROMPTS")
 [ -n "$RARE_OVERSAMPLE" ] && ARGS+=(--rare_oversample "$RARE_OVERSAMPLE")
+[ -n "$CONFIDENCE_OVERSAMPLE" ] && ARGS+=(--confidence_oversample "$CONFIDENCE_OVERSAMPLE")  # 0 = no-op
 [ "$PREFER_TIME" = "1" ] && ARGS+=(--prefer_time)
 [ -n "$DUMP_UNCOVERED" ] && ARGS+=(--dump_uncovered "$DUMP_UNCOVERED")
 
