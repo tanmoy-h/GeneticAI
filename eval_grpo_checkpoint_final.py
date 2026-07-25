@@ -125,8 +125,7 @@ def parse_args():
                         "it samples ~the rare prompts instead of the full split.")
     p.add_argument("--only_indices",       type=str,   default=None,
                    help="Path to a file of split indices (one int per line, or a JSON "
-                        "list) to sample EXCLUSIVELY — e.g. the GRPO miss/slow targets "
-                        "from select_sft_targets.py. Takes precedence over "
+                        "list) to sample EXCLUSIVELY. Takes precedence over "
                         "--rare_max_prompts. Original indices preserved for RFT alignment.")
     p.add_argument("--resume",             action="store_true",
                    help="Resume a dropped sampling run: skip (index, pass) pairs already "
