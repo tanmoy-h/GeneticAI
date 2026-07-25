@@ -39,6 +39,10 @@ KEGG_CSV=${KEGG_CSV:-}
 OUTPUT_DIR=${OUTPUT_DIR:-$(pwd)/train/rft/samples}
 OUTPUT_PREFIX=${OUTPUT_PREFIX:-rft_sample}
 SAMPLE_PASSES=${SAMPLE_PASSES:-8}
+## N_SAMPLES: -1 = full unshuffled train (production; keeps index alignment). A positive N
+## RANDOM-samples N prompts — use ONLY for a smoke test (breaks index order), with a distinct
+## OUTPUT_PREFIX so it doesn't touch the real traces.
+N_SAMPLES=${N_SAMPLES:--1}
 TEMPERATURE=${TEMPERATURE:-0.7}
 TOP_P=${TOP_P:-0.95}
 TOP_K=${TOP_K:-50}
@@ -119,7 +123,7 @@ stdbuf -oL -eL accelerate launch --config_file "$ACCEL_CFG" \
     --checkpoint            "$CKPT" \
     "${DATASET_ARGS[@]}" \
     --split                 train \
-    --n_samples             -1 \
+    --n_samples             "$N_SAMPLES" \
     --sample_passes         "$SAMPLE_PASSES" \
     --temperature           "$TEMPERATURE" \
     --top_p                 "$TOP_P" \
