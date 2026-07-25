@@ -10,5 +10,8 @@ set -euo pipefail
 _REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 export KEGG_CSV="${KEGG_CSV:-genomorph/dataset/global_stage1_anon_genes_mol_keep_chr.csv}"
+## Stage-2 manifold must match what the anon model trained with (anon variant); DNA_CACHE is
+## shared (DNA isn't anonymized). All other env (CONTROLLER, SPLIT, THETA_*, ...) passes through.
+export STAGE2_DIR="${STAGE2_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_05_stage2_hiref_anon}"
 
 exec bash "$_REPO/train/rft/eval_selfadaptive.sh" "$@"
