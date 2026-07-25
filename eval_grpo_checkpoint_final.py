@@ -565,6 +565,15 @@ def main():
     device     = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
     random.seed(args.seed)
 
+    # --checkpoint must be the checkpoint DIRECTORY (weights + gate/injector/theta live
+    # side by side). Accept a weights-file path too (e.g. the .../model.pt from a
+    # stage151 pointer) by falling back to its parent dir.
+    if os.path.isfile(args.checkpoint):
+        if rank == 0:
+            print(f"  [note] --checkpoint is a file; using its directory: "
+                  f"{os.path.dirname(args.checkpoint)}")
+        args.checkpoint = os.path.dirname(args.checkpoint)
+
     if rank == 0:
         print(f"\n{'='*60}")
         print(f"  eval_stage3_w9.py")
