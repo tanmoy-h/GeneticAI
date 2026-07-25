@@ -491,13 +491,20 @@ def _make_rft_row(question: str, completion: str,
     """Build one self-adaptive RFT row: the assistant content is the SAMPLED completion
     (reasoning with latent markers + </think> + Answer), not the ground-truth reasoning.
 
-    The completion was generated after a "<think>\\n" prefill, so it starts with the
-    reasoning. We reconstruct: user turn + "<|im_start|>assistant\\n<think>\\n" as `text`
-    (the prompt), and the completion as `answer`. KeggRawDataset tokenises text+answer;
-    prompt_end (via find_assistant_start) masks the user turn, and
-    label_self_adaptive_latents teacher-forces the rest INCLUDING the latent markers.
+    We reconstruct: user turn + "<|im_start|>assistant\\n<think>\\n" as `text` (the prompt),
+    and the completion as `answer`. KeggRawDataset tokenises text+answer; prompt_end (via
+    find_assistant_start) masks the user turn, and label_self_adaptive_latents teacher-forces
+    the rest INCLUDING the latent markers.
+
+    NOTE: the sampled/gold completion ALSO begins with "<think>\\n" (the GRPO sampler
+    re-emitted <think> after the prefill; gold traces are written with it). Since asst_prefix
+    already supplies <think>, we STRIP a leading <think> from the completion to avoid a
+    DOUBLE "<think>\\n<think>" in the joined sequence.
     """
     completion = completion.rstrip()
+    _c = completion.lstrip()
+    if _c.startswith("<think>"):                       # drop the redundant leading <think>
+        completion = _c[len("<think>"):].lstrip("\n")
     if not completion.endswith("<|im_end|>"):
         completion += "<|im_end|>"
     user_text   = f"<|im_start|>user\n<|dna_pad|>\n<|dna_pad|>\n{question.strip()}\n<|im_end|>\n"
