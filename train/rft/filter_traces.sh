@@ -13,6 +13,9 @@
 ##   # PREFER_TIME=1 lets a faster SFT text trace beat a slow GRPO latent trace on GRPO's
 ##   # slow prompts (pick fastest correct trace, not shortest-by-tokens):
 ##   PREFER_TIME=1 TRACES="<grpo>_traces.jsonl <sft>_traces.jsonl" bash train/rft/filter_traces.sh
+##   # dump the still-uncovered (synonymy) prompts to backfill from KEGG gold reasoning:
+##   DUMP_UNCOVERED=train/rft/samples/uncovered.txt \
+##     TRACES="<grpo>_traces.jsonl <sft>_traces.jsonl" bash train/rft/filter_traces.sh
 
 CONDA_ENV=${CONDA_ENV:-dna_env}
 TRACES=${TRACES:-}
@@ -30,6 +33,11 @@ RARE_OVERSAMPLE=${RARE_OVERSAMPLE:-3}
 ## latent trace on GRPO's slow prompts (see select_sft_targets.py). Default 0 keeps the
 ## latent-first, shortest-tokens selection.
 PREFER_TIME=${PREFER_TIME:-0}
+## DUMP_UNCOVERED=<file> writes the indices of prompts with NO correct trace from any source
+## (the synonymy zero-coverage prompts) -> feed to train/rft/gold_traces.sh to backfill them
+## with the KEGG dataset's own reasoning + answer, then re-run this filter with the gold file
+## added to TRACES. Empty = don't dump.
+DUMP_UNCOVERED=${DUMP_UNCOVERED:-}
 
 if [ -z "$TRACES" ]; then
     echo "ERROR: set TRACES=<...>_traces.jsonl (output of train/rft/sample_traces.sh)"
@@ -56,10 +64,15 @@ ARGS=(--traces $TRACES --out "$OUT")
 [ -n "$RARE_MAX_PROMPTS" ] && ARGS+=(--rare_max_prompts "$RARE_MAX_PROMPTS")
 [ -n "$RARE_OVERSAMPLE" ] && ARGS+=(--rare_oversample "$RARE_OVERSAMPLE")
 [ "$PREFER_TIME" = "1" ] && ARGS+=(--prefer_time)
+[ -n "$DUMP_UNCOVERED" ] && ARGS+=(--dump_uncovered "$DUMP_UNCOVERED")
 
-echo "Filtering $TRACES -> $OUT  (max_words=$MAX_WORDS require_latent=$REQUIRE_LATENT rare<=$RARE_MAX_PROMPTS x$RARE_OVERSAMPLE prefer_time=$PREFER_TIME)"
+echo "Filtering $TRACES -> $OUT  (max_words=$MAX_WORDS require_latent=$REQUIRE_LATENT rare<=$RARE_MAX_PROMPTS x$RARE_OVERSAMPLE prefer_time=$PREFER_TIME dump_uncovered=${DUMP_UNCOVERED:-none})"
 python train/rft/build_rft_dataset.py "${ARGS[@]}"
 
 echo ""
 echo "=== Filter done -> $OUT ==="
+if [ -n "$DUMP_UNCOVERED" ] && [ -s "$DUMP_UNCOVERED" ]; then
+    echo "=== $(wc -l < "$DUMP_UNCOVERED") uncovered prompts -> $DUMP_UNCOVERED ==="
+    echo "=== Backfill: INDICES=$DUMP_UNCOVERED bash train/rft/gold_traces.sh, then re-run this filter with the gold file added to TRACES ==="
+fi
 echo "=== Next: RFT_TRACES=$OUT bash train/train_07_selfadaptive.sh ==="
