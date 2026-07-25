@@ -868,8 +868,11 @@ def process_batch(
             labels_list.append(lbl)
             weights_list.append(wgt)
             step_counts.append(int((nid == start_id).sum().item()))
-        return (torch.stack(new_ids_list), torch.stack(labels_list),
-                torch.stack(weights_list), step_counts)
+        # .to(device): label_self_adaptive_latents builds tensors from .tolist() (CPU), so
+        # move them to the model's device (the curriculum path below does the same).
+        return (torch.stack(new_ids_list).to(device),
+                torch.stack(labels_list).to(device),
+                torch.stack(weights_list).to(device), step_counts)
 
     # Inline entropy: one forward pass (no grad)
     if entropy_map is None:
