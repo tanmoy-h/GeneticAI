@@ -120,7 +120,13 @@ except Exception:
     CKPT=$(dirname "$_STAGE1_CKPT")
     NO_LATENT=1                                   # SFT source is always sampled latent-free
     RARE_ONLY=${RARE_ONLY:-1}                     # and only the rare tail (common = GRPO's job)
-    OUTPUT_PREFIX=${OUTPUT_PREFIX:-rft_sample_sft}
+    ## Derive a DISTINCT SFT prefix from the base (which the config/anon-wrapper already set)
+    ## so the SFT run never overwrites the GRPO traces: rft_sample -> rft_sample_sft,
+    ## rft_sample_anon -> rft_sample_anon_sft. (A bare ${:-} would be a no-op here.)
+    case "$OUTPUT_PREFIX" in
+        *_sft) : ;;                               # already an sft prefix
+        *)     OUTPUT_PREFIX="${OUTPUT_PREFIX}_sft" ;;
+    esac
     echo "SFT_BEST resolved -> CKPT=$CKPT (NO_LATENT=1, RARE_ONLY=$RARE_ONLY, prefix=$OUTPUT_PREFIX)"
 fi
 
