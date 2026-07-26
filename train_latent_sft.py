@@ -119,6 +119,62 @@ def ensure_latent_tokens(tokenizer, model) -> Tuple[int, int, int]:
     return start_id, end_id, latent_id
 
 
+def load_start_state_dict_from_dir(ckpt_dir: str) -> Dict[str, torch.Tensor]:
+    """Load a backbone state_dict from an HF-Trainer/GRPO checkpoint DIRECTORY.
+
+    Mirrors eval_grpo_checkpoint_final.py::_load_llm_weights so RFT can start from a
+    train_06b GRPO checkpoint (backbone already w9-native). Priority:
+      1. pytorch_model.bin          (train_06b sets save_safetensors=False)
+      2. model.safetensors          (HF Trainer default)
+      3. model.pt                   (manual torch.save)
+      4/5. sharded safetensors / .bin
+    Returns the raw state_dict (caller strips any leading 'model.' prefix).
+    """
+    import glob as _glob
+
+    p = os.path.join(ckpt_dir, "pytorch_model.bin")
+    if os.path.exists(p):
+        print(f"[Stage1.5] Start weights ← {p}")
+        return torch.load(p, map_location="cpu", weights_only=True)
+
+    p = os.path.join(ckpt_dir, "model.safetensors")
+    if os.path.exists(p):
+        try:
+            from safetensors.torch import load_file as _st_load
+            print(f"[Stage1.5] Start weights ← {p}")
+            return _st_load(p, device="cpu")
+        except ImportError:
+            print(f"[Stage1.5] Start weights ← {p} (torch.load fallback)")
+            return torch.load(p, map_location="cpu", weights_only=True)
+
+    p = os.path.join(ckpt_dir, "model.pt")
+    if os.path.exists(p):
+        print(f"[Stage1.5] Start weights ← {p}")
+        return torch.load(p, map_location="cpu", weights_only=True)
+
+    for pat in ("model-*-of-*.safetensors", "pytorch_model-*-of-*.safetensors"):
+        shards = sorted(_glob.glob(os.path.join(ckpt_dir, pat)))
+        if shards:
+            from safetensors.torch import load_file as _st_load
+            merged: Dict[str, torch.Tensor] = {}
+            for s in shards:
+                merged.update(_st_load(s, device="cpu"))
+            print(f"[Stage1.5] Start weights ← {len(shards)} safetensors shards in {ckpt_dir}")
+            return merged
+
+    shards = sorted(_glob.glob(os.path.join(ckpt_dir, "pytorch_model-*-of-*.bin")))
+    if shards:
+        merged = {}
+        for s in shards:
+            merged.update(torch.load(s, map_location="cpu", weights_only=True))
+        print(f"[Stage1.5] Start weights ← {len(shards)} .bin shards in {ckpt_dir}")
+        return merged
+
+    raise FileNotFoundError(
+        f"No backbone weights (pytorch_model.bin / model.safetensors / model.pt / shards) "
+        f"found in checkpoint dir: {ckpt_dir}")
+
+
 # ── Step span detection ───────────────────────────────────────────────────────
 
 def find_step_content_spans(
@@ -486,6 +542,23 @@ def load_kegg_hf(dataset_name: str, cache_dir=None, truncate_dna_per_side: int =
     return train_rows, val_rows
 
 
+def load_eval_rows(dataset_name: str = None, kegg_csv: str = None,
+                   cache_dir=None, truncate_dna_per_side: int = 1024) -> List[dict]:
+    """Load the combined val+test eval set (290 for wanglab/kegg: val 144 + test 146)
+    for the in-training accuracy probe. Falls back to whatever of val/test exists."""
+    if kegg_csv:
+        from genomorph.dataset.kegg import load_kegg_from_anon_csv
+        ds = load_kegg_from_anon_csv(kegg_csv)
+    else:
+        ds = load_dataset(dataset_name, cache_dir=cache_dir)
+    rows: List[dict] = []
+    for split in ("val", "validation", "test"):
+        if split in ds:
+            rows += [_make_row(ex["question"], ex["reasoning"], ex["answer"],
+                               *_trunc(ex, truncate_dna_per_side)) for ex in ds[split]]
+    return rows
+
+
 def _make_rft_row(question: str, completion: str,
                   reference_sequence: str = "", variant_sequence: str = "") -> dict:
     """Build one self-adaptive RFT row: the assistant content is the SAMPLED completion
@@ -725,6 +798,175 @@ def generate_samples(
     print(sep + "\n")
     model.train()
     return generated_texts
+
+
+# ── In-training accuracy probe on val+test (290) ──────────────────────────────
+# Mirrors eval_stage1_51_checkpoints.py's extract_answer / is_correct so the
+# in-training number is comparable to the standalone eval.
+_EVAL_EXPLANATION_DELIMS = (
+    ' with ', ' due to', ' caused by', ' characterized by',
+    ' resulting from', ' associated with', ' - ',
+)
+
+
+def _extract_answer(generated: str) -> str:
+    m = re.search(r'Answer:\s*(.+?)(?:<\|im_end\|>|<\|endoftext\|>|\n|\Z)', generated)
+    if not m:
+        return ""
+    answer = m.group(1).strip().rstrip(".,;")
+    lower = answer.lower()
+    for delim in _EVAL_EXPLANATION_DELIMS:
+        idx = lower.find(delim)
+        if idx != -1:
+            answer = answer[:idx].strip().rstrip(".,;")
+            lower  = answer.lower()
+    return answer
+
+
+def _is_correct(pred: str, gt: str) -> bool:
+    if not pred:
+        return False
+    return gt.lower().strip() in pred.lower().strip()   # gt must appear in prediction
+
+
+def _metrics_from_details(details: List[Tuple[str, str, bool]]):
+    """(prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_w) from (pred, gt, correct) triples.
+    Mirrors eval_stage1_51_checkpoints.py::_f1_from_details exactly (a wrong prediction is
+    scored as its own predicted label so it counts as a false positive for that class)."""
+    from sklearn.metrics import f1_score as sk_f1, precision_score, recall_score
+    if not details:
+        return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    y_true = [gt for _, gt, _ in details]
+    y_pred = [gt if ok else pred for pred, gt, ok in details]
+    labels = sorted(set(y_true))
+    prec_mac = float(precision_score(y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+    rec_mac  = float(recall_score(   y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+    f1_mac   = float(sk_f1(          y_true, y_pred, labels=labels, average="macro",    zero_division=0))
+    prec_w   = float(precision_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+    rec_w    = float(recall_score(   y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+    f1_w     = float(sk_f1(          y_true, y_pred, labels=labels, average="weighted", zero_division=0))
+    return prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_w
+
+
+@torch.no_grad()
+def evaluate_accuracy(
+    model,
+    processor,
+    rows: List[dict],
+    device: str,
+    max_new_tokens: int = 800,
+    ban_latent_ids: List[int] = None,
+    label: str = "",
+    step: int = 0,
+    dna_cache: Optional[Dict[bytes, torch.Tensor]] = None,
+) -> Dict[str, float]:
+    """Greedy-decode accuracy on `rows` (the val+test 290 probe). Extracts 'Answer:' and
+    scores gt-in-pred, matching eval_stage1_51_checkpoints.py. Prints the standard metric
+    block (Accuracy / Precision / Recall / F1 macro+weighted / Mean time) and returns a dict.
+    ban_latent_ids=None → latents allowed (self-emit, the RFT target); pass the latent ids
+    to force a latent-free number instead.
+    dna_cache: preloaded {input_ids.tobytes(): embedding} map (same format as
+    eval_stage1_51_checkpoints.py's --dna_cache) to skip live Evo2 for cached sequences —
+    scoped to this call only (model._evo2_embed is restored after, so training resumes
+    unaffected; dna_model stays on GPU throughout since training needs it live right after)."""
+    import time as _time
+    model.eval()
+    tokenizer = processor.tokenizer
+    pad_id    = tokenizer.pad_token_id or 0
+    im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+    stop_ids  = list({t for t in [tokenizer.eos_token_id, im_end_id]
+                      if t is not None and t != tokenizer.unk_token_id})
+    think_tag = "<think>\n"
+    bad_words = [[t] for t in ban_latent_ids] if ban_latent_ids else None
+
+    # Scoped DNA-cache patch: fall back to live Evo2 on a cache miss (RFT rows can
+    # include sampled/gold rows not in a val/test-only cache), so a partial cache
+    # never breaks the eval — it only saves time where it hits.
+    _orig_evo2_embed = model._evo2_embed
+    if dna_cache is not None:
+        import types as _eval_types
+        def _cached_evo2_embed(self, input_ids: torch.Tensor, layer_name: str) -> torch.Tensor:
+            key = input_ids.cpu().numpy().tobytes()
+            emb = dna_cache.get(key)
+            if emb is None:
+                return _orig_evo2_embed(input_ids, layer_name)
+            _p = next(self.dna_projection.parameters())
+            return emb.to(device=_p.device, dtype=_p.dtype)
+        model._evo2_embed = _eval_types.MethodType(_cached_evo2_embed, model)
+
+    details: List[Tuple[str, str, bool]] = []
+    total_time = 0.0
+    n_timed    = 0
+    try:
+        for row in rows:
+            full_text     = row["text"]
+            gt            = _extract_answer(row["answer"]) or \
+                            row["answer"].replace("Answer:", "").replace("<|im_end|>", "").strip()
+            dna_sequences = row.get("dna_sequences", ["", ""])
+            cut         = full_text.find(think_tag)
+            prompt_text = full_text[:cut + len(think_tag)] if cut != -1 else full_text
+            batch = processor(
+                text                = [prompt_text],
+                batch_dna_sequences = [dna_sequences],
+                return_tensors      = "pt",
+                padding             = False,
+                add_special_tokens  = False,
+                max_length_text     = model.max_length_text,
+                max_length_dna      = model.max_length_dna,
+            )
+            input_ids = batch["input_ids"].to(device)
+            attn      = batch["attention_mask"].to(device)
+            dna_tok   = {k: v.to(device) for k, v in batch["dna_tokenized"].items()}
+            idx_map   = list(batch["batch_idx_map"])
+            try:
+                _t0 = _time.perf_counter()
+                out_ids = model.generate(
+                    input_ids            = input_ids,
+                    attention_mask       = attn,
+                    dna_tokenized        = dna_tok,
+                    batch_idx_map        = idx_map,
+                    max_new_tokens       = max_new_tokens,
+                    do_sample            = False,   # greedy → deterministic checkpoint selection
+                    pad_token_id         = pad_id,
+                    eos_token_id         = stop_ids,
+                    bad_words_ids        = bad_words,
+                )
+                total_time += _time.perf_counter() - _t0
+                n_timed    += 1
+            except Exception as e:
+                print(f"  [eval290] gen error ({e}); scoring as wrong")
+                details.append(("", gt, False))
+                continue
+            gen  = tokenizer.decode(out_ids[0], skip_special_tokens=False)
+            pred = _extract_answer(gen)
+            details.append((pred, gt, _is_correct(pred, gt)))
+    finally:
+        if dna_cache is not None:
+            model._evo2_embed = _orig_evo2_embed   # restore so training resumes on live Evo2
+
+    n_total   = len(details)
+    n_correct = sum(1 for _, _, ok in details if ok)
+    acc       = n_correct / max(n_total, 1)
+    prec_mac, rec_mac, f1_mac, prec_w, rec_w, f1_w = _metrics_from_details(details)
+    mean_time = total_time / max(n_timed, 1)
+
+    sep = "=" * 64
+    print(f"\n{sep}\n  EVAL val+test  {label}  "
+          f"(latents={'banned' if ban_latent_ids else 'self-emit'})\n{sep}")
+    print(f"  Step            : {step}")
+    print(f"  Accuracy        : {acc:.4f}  ({n_correct}/{n_total})")
+    print(f"  Precision       : {prec_mac:.4f}  (macro)   {prec_w:.4f}  (weighted)")
+    print(f"  Recall          : {rec_mac:.4f}  (macro)   {rec_w:.4f}  (weighted)")
+    print(f"  F1              : {f1_mac:.4f}  (macro)   {f1_w:.4f}  (weighted)")
+    print(f"  Mean time/sample: {mean_time:.2f}s\n{sep}\n")
+
+    model.train()
+    return {
+        "n_correct": n_correct, "n_total": n_total, "accuracy": acc,
+        "precision_macro": prec_mac, "recall_macro": rec_mac, "f1_macro": f1_mac,
+        "precision_weighted": prec_w, "recall_weighted": rec_w, "f1_weighted": f1_w,
+        "mean_time_per_sample_sec": mean_time,
+    }
 
 
 def collate_fn(batch: List[Tuple], pad_id: int):
@@ -999,29 +1241,50 @@ def train(args):
     model.text_model.config.use_cache = False
     model.gradient_checkpointing_enable()
 
-    # Load Stage 1 / Stage 1.5 weights
-    ckpt  = torch.load(args.stage1_ckpt, map_location="cpu")
-    state = ckpt.get("state_dict", ckpt)
-    clean = {(k[6:] if k.startswith("model.") else k): v for k, v in state.items()}
+    # Load Stage 1 / Stage 1.5 / GRPO start weights.
+    # --stage1_ckpt may be EITHER:
+    #   * a single file (Stage 1 .ckpt or Stage 1.5 model.pt) — original path, or
+    #   * a checkpoint DIRECTORY (e.g. a train_06b GRPO checkpoint-XXXX) holding
+    #     pytorch_model.bin / model.safetensors / model.pt (+ optional
+    #     thinking_gate.pt / dna_injector.pt) — RFT-on-GRPO start (backbone already
+    #     w9-native). The GRPO gate/injector, if present, are loaded further below.
+    tokenizer     = model.processor.tokenizer
+    _gate_src_dir = None   # dir to load GRPO thinking_gate.pt / dna_injector.pt from
 
-    # Pre-resize vocab if the checkpoint already contains latent tokens
-    # (Stage 1.5 checkpoints have vocab 151675; base Qwen is 151672).
-    tokenizer = model.processor.tokenizer
-    _emb = clean.get("text_model.model.embed_tokens.weight")
-    if _emb is not None and _emb.shape[0] != len(tokenizer):
-        _latent_toks = [LATENT_START, LATENT_END, LATENT_PAD]
-        _missing_toks = [t for t in _latent_toks
-                         if tokenizer.convert_tokens_to_ids(t) == tokenizer.unk_token_id]
-        if _missing_toks:
-            tokenizer.add_special_tokens({"additional_special_tokens": _missing_toks})
-        model.text_model.resize_token_embeddings(len(tokenizer))
-        print(f"[Stage1.5] Pre-load vocab resize → {len(tokenizer)} "
-              f"(ckpt had {_emb.shape[0]})")
+    if os.path.isdir(args.stage1_ckpt):
+        # GRPO/HF-Trainer dir: its backbone already carries the latent tokens
+        # (vocab 151675), so add them BEFORE loading so embed/lm_head shapes match.
+        ensure_latent_tokens(tokenizer, model)
+        state = load_start_state_dict_from_dir(args.stage1_ckpt)
+        clean = {(k[6:] if k.startswith("model.") else k): v for k, v in state.items()}
+        missing, unexpected = model.load_state_dict(clean, strict=False)
+        _gate_src_dir = args.stage1_ckpt
+        print(f"[Stage1.5] Loaded start weights from dir: {args.stage1_ckpt} "
+              f"(missing={len(missing)} unexpected={len(unexpected)})")
+        if missing:
+            print(f"  Missing keys sample: {missing[:3]}")
+    else:
+        ckpt  = torch.load(args.stage1_ckpt, map_location="cpu")
+        state = ckpt.get("state_dict", ckpt)
+        clean = {(k[6:] if k.startswith("model.") else k): v for k, v in state.items()}
 
-    missing, _ = model.load_state_dict(clean, strict=False)
-    if missing:
-        print(f"  Missing keys (expected if no gate): {missing[:3]}")
-    print(f"[Stage1.5] Loaded checkpoint: {args.stage1_ckpt}")
+        # Pre-resize vocab if the checkpoint already contains latent tokens
+        # (Stage 1.5 checkpoints have vocab 151675; base Qwen is 151672).
+        _emb = clean.get("text_model.model.embed_tokens.weight")
+        if _emb is not None and _emb.shape[0] != len(tokenizer):
+            _latent_toks = [LATENT_START, LATENT_END, LATENT_PAD]
+            _missing_toks = [t for t in _latent_toks
+                             if tokenizer.convert_tokens_to_ids(t) == tokenizer.unk_token_id]
+            if _missing_toks:
+                tokenizer.add_special_tokens({"additional_special_tokens": _missing_toks})
+            model.text_model.resize_token_embeddings(len(tokenizer))
+            print(f"[Stage1.5] Pre-load vocab resize → {len(tokenizer)} "
+                  f"(ckpt had {_emb.shape[0]})")
+
+        missing, _ = model.load_state_dict(clean, strict=False)
+        if missing:
+            print(f"  Missing keys (expected if no gate): {missing[:3]}")
+        print(f"[Stage1.5] Loaded checkpoint: {args.stage1_ckpt}")
 
     start_id, end_id, latent_id = ensure_latent_tokens(tokenizer, model)
     pad_id = tokenizer.pad_token_id or 0
@@ -1059,6 +1322,21 @@ def train(args):
         print(f"[Stage1.5] Gate enabled: ThinkingResidualGate + DNAHiddenInjector "
               f"(factor={MAX_GATE_FACTOR})")
 
+        # RFT-on-GRPO: carry the checkpoint's tuned gate/injector so the whole
+        # w9-native state transfers (not just the backbone). Without this the
+        # gate/injector would train fresh from random, contradicting the point of
+        # starting from a w9-native GRPO checkpoint.
+        if _gate_src_dir is not None:
+            _gp = os.path.join(_gate_src_dir, "thinking_gate.pt")
+            _ip = os.path.join(_gate_src_dir, "dna_injector.pt")
+            if os.path.isfile(_gp) and os.path.isfile(_ip):
+                thinking_gate.load_state_dict(torch.load(_gp, map_location=device))
+                dna_injector.load_state_dict(torch.load(_ip, map_location=device))
+                print(f"[Stage1.5] Loaded gate+injector from start dir: {_gate_src_dir}")
+            else:
+                print(f"[Stage1.5] WARN: no thinking_gate.pt/dna_injector.pt in "
+                      f"{_gate_src_dir} — gate/injector will train from fresh init")
+
     # ── Data ──────────────────────────────────────────────────────────────────
     _rft = getattr(args, "rft_traces", None)
     if _rft:
@@ -1086,6 +1364,23 @@ def train(args):
     print(f"[Stage1.5] train={len(all_rows)}  val={len(val_rows)}")
 
     val_dataset = KeggRawDataset(val_rows, model.processor, args.max_length_text, args.max_length_dna)
+
+    # ── val+test accuracy probe set (290) for the half-epoch eval ──────────────
+    eval290_rows: List[dict] = []
+    if getattr(args, "half_epoch_eval", False):
+        eval290_rows = load_eval_rows(
+            dataset_name          = None if args.kegg_csv else args.kegg_dataset,
+            kegg_csv              = args.kegg_csv,
+            cache_dir             = args.cache_dir,
+            truncate_dna_per_side = args.truncate_dna_per_side,
+        )
+        print(f"[Stage1.5] half-epoch eval enabled: {len(eval290_rows)} val+test rows "
+              f"(latents={'banned' if args.eval_ban_latent else 'self-emit'})")
+
+    eval_dna_cache = None
+    if getattr(args, "eval_dna_cache", None):
+        eval_dna_cache = torch.load(args.eval_dna_cache, map_location="cpu")
+        print(f"[Stage1.5] eval290 DNA cache: {len(eval_dna_cache)} sequences ← {args.eval_dna_cache}")
 
     # ── Optimizer ─────────────────────────────────────────────────────────────
     # steps_per_s: one cosine cycle per curriculum level (restart at each s)
@@ -1120,10 +1415,67 @@ def train(args):
 
     global_step = 0
     best_val    = float("inf")
+    best_acc    = -1.0
+
+    # Checkpoint dir naming: the "sSS_" curriculum prefix is meaningful only for
+    # curriculum SFT (s = steps compressed to latents, process_batch:1157). In RFT
+    # mode (self_adaptive) the outer s-loop is a single vestigial iteration — s is
+    # never read by process_batch's self_adaptive branch — so name by epoch only.
+    def _ckpt_name(s: int, inner_pass: int, tag: str = None) -> str:
+        base = f"epoch{inner_pass+1:02d}" if _rft else f"s{s:02d}_pass{inner_pass+1:02d}"
+        return f"{base}_{tag}" if tag else base
+
+    # ── Half-epoch save + val+test(290) accuracy probe ─────────────────────────
+    # Saves a checkpoint (model + gate + injector + tokenizer) and runs the 290
+    # accuracy eval, tracking the accuracy-best into <output_dir>/best_acc/. Called
+    # at 50% and 100% of every pass when --half_epoch_eval is set.
+    def _save_and_eval290(tag: str, s: int, inner_pass: int):
+        nonlocal best_acc
+        ckpt_dir = os.path.join(args.output_dir, _ckpt_name(s, inner_pass, tag))
+        os.makedirs(ckpt_dir, exist_ok=True)
+        torch.save(model.state_dict(), os.path.join(ckpt_dir, "model.pt"))
+        tokenizer.save_pretrained(ckpt_dir)
+        if thinking_gate is not None:
+            torch.save(thinking_gate.state_dict(), os.path.join(ckpt_dir, "thinking_gate.pt"))
+            torch.save(dna_injector.state_dict(),  os.path.join(ckpt_dir, "dna_injector.pt"))
+        print(f"  Saved ({tag}) → {ckpt_dir}/model.pt")
+
+        if not eval290_rows:
+            return
+        ban_ids = [start_id, end_id, latent_id] if args.eval_ban_latent else None
+        m = evaluate_accuracy(
+            model, model.processor, eval290_rows, device,
+            max_new_tokens = args.gen_max_new_tokens,
+            ban_latent_ids = ban_ids,
+            label          = f"pass={inner_pass+1} [{tag}]" if _rft else f"s={s} pass={inner_pass+1} [{tag}]",
+            step           = global_step,
+            dna_cache      = eval_dna_cache,
+        )
+        acc = m["accuracy"]
+        if use_wandb:
+            import wandb
+            wandb.log({f"eval290/{k}": v for k, v in m.items()}, step=global_step)
+        if acc > best_acc:
+            best_acc = acc
+            ba_dir = os.path.join(args.output_dir, "best_acc")
+            os.makedirs(ba_dir, exist_ok=True)
+            torch.save(model.state_dict(), os.path.join(ba_dir, "model.pt"))
+            tokenizer.save_pretrained(ba_dir)
+            if thinking_gate is not None:
+                torch.save(thinking_gate.state_dict(), os.path.join(ba_dir, "thinking_gate.pt"))
+                torch.save(dna_injector.state_dict(),  os.path.join(ba_dir, "dna_injector.pt"))
+            print(f"  ★ New best eval290 accuracy={best_acc:.4f} → {ba_dir}/")
 
     # ── Outer curriculum loop: s = start_latent_step .. max_latent_steps ────────
-    for s in range(args.start_latent_step, args.max_latent_steps + 1):
-        print(f"\n[Stage1.5] ── Curriculum step s={s} / {args.max_latent_steps} ──")
+    # RFT mode (self_adaptive): s is never read by process_batch's self_adaptive branch
+    # (it teacher-forces the completion as-is, no curriculum). Force a single iteration
+    # regardless of --start_latent_step/--max_latent_steps so RFT can't silently repeat
+    # the whole epoch set once per curriculum level (the risk if callers relied on those
+    # flags being set equal — now the code guarantees it instead).
+    _s_range = [args.max_latent_steps] if _rft else range(args.start_latent_step, args.max_latent_steps + 1)
+    for s in _s_range:
+        if not _rft:
+            print(f"\n[Stage1.5] ── Curriculum step s={s} / {args.max_latent_steps} ──")
 
         # Data refresh: shuffle in 10% new samples each outer step (LatentSp paper)
         n_refresh    = max(1, int(len(all_rows) * args.data_refresh_ratio))
@@ -1174,6 +1526,8 @@ def train(args):
             n_batches     = 0
             batch_offset  = 0
             logged_sample = False   # print one decoded sample per curriculum step
+            _half_at      = max(1, len(train_loader) // 2)   # 50%-of-epoch trigger point
+            _did_half     = False
 
             for batch_ids, dna_tok, idx_map, prompt_ends, _ in train_loader:
                 B = batch_ids.shape[0]
@@ -1266,6 +1620,11 @@ def train(args):
                             )
                         }, step=global_step)
 
+                # ── Half-epoch (50%) save + val+test(290) accuracy probe ───────
+                if args.half_epoch_eval and not _did_half and n_batches >= _half_at:
+                    _did_half = True
+                    _save_and_eval290("half", s, inner_pass)
+
             # ── Validation ────────────────────────────────────────────────────
             model.eval()
             val_loss   = 0.0
@@ -1314,7 +1673,8 @@ def train(args):
                 model, model.processor, val_rows, device,
                 n_samples           = args.n_gen_samples,
                 max_new_tokens      = args.gen_max_new_tokens,
-                label               = f"s={s} pass={inner_pass+1} [end-of-pass]",
+                label               = (f"pass={inner_pass+1} [end-of-pass]" if _rft
+                                        else f"s={s} pass={inner_pass+1} [end-of-pass]"),
                 suppress_latent_ids = [start_id, end_id, latent_id],
             )
             if use_wandb:
@@ -1326,15 +1686,18 @@ def train(args):
                     )
                 }, step=global_step)
 
-            # Save checkpoint
-            ckpt_dir = os.path.join(args.output_dir, f"s{s:02d}_pass{inner_pass+1:02d}")
-            os.makedirs(ckpt_dir, exist_ok=True)
-            torch.save(model.state_dict(), os.path.join(ckpt_dir, "model.pt"))
-            tokenizer.save_pretrained(ckpt_dir)
-            if thinking_gate is not None:
-                torch.save(thinking_gate.state_dict(), os.path.join(ckpt_dir, "thinking_gate.pt"))
-                torch.save(dna_injector.state_dict(),  os.path.join(ckpt_dir, "dna_injector.pt"))
-            print(f"  Saved → {ckpt_dir}/model.pt")
+            # Save checkpoint (skipped when half_epoch_eval is on: _save_and_eval290("full", ...)
+            # below saves the same end-of-pass state under "..._full" — this avoided a
+            # redundant duplicate model.pt save at the same point).
+            if not args.half_epoch_eval:
+                ckpt_dir = os.path.join(args.output_dir, _ckpt_name(s, inner_pass))
+                os.makedirs(ckpt_dir, exist_ok=True)
+                torch.save(model.state_dict(), os.path.join(ckpt_dir, "model.pt"))
+                tokenizer.save_pretrained(ckpt_dir)
+                if thinking_gate is not None:
+                    torch.save(thinking_gate.state_dict(), os.path.join(ckpt_dir, "thinking_gate.pt"))
+                    torch.save(dna_injector.state_dict(),  os.path.join(ckpt_dir, "dna_injector.pt"))
+                print(f"  Saved → {ckpt_dir}/model.pt")
 
             if avg_val < best_val:
                 best_val = avg_val
@@ -1346,6 +1709,10 @@ def train(args):
                     torch.save(thinking_gate.state_dict(), os.path.join(best_dir, "thinking_gate.pt"))
                     torch.save(dna_injector.state_dict(),  os.path.join(best_dir, "dna_injector.pt"))
                 print(f"  ★ New best val_loss={best_val:.4f} → {best_dir}/")
+
+            # ── End-of-epoch (100%) save + val+test(290) accuracy probe ────────
+            if args.half_epoch_eval:
+                _save_and_eval290("full", s, inner_pass)
 
         # After final curriculum step: also refresh data by re-shuffling
         random.shuffle(all_rows)
@@ -1422,6 +1789,20 @@ def parse_args():
                    help="Number of val examples to generate from")
     p.add_argument("--gen_max_new_tokens",    type=int,   default=800,
                    help="Max new tokens per generation sample")
+    p.add_argument("--half_epoch_eval",       action="store_true", default=False,
+                   help="At 50%% and 100%% of every pass: save a checkpoint "
+                        "(sSS_passPP_half/_full for curriculum SFT, epochPP_half/_full for "
+                        "RFT --rft_traces) AND run a greedy accuracy eval on the val+test "
+                        "set (290). Tracks the accuracy-best into <output_dir>/best_acc/.")
+    p.add_argument("--eval_ban_latent",       action="store_true", default=False,
+                   help="Ban latent tokens during the half-epoch 290 eval (latent-free "
+                        "number). Default off = latents allowed (self-emit, the RFT target).")
+    p.add_argument("--eval_dna_cache",        default=None,
+                   help="Path to a precomputed {input_ids_bytes: embedding} DNA cache "
+                        "(same format as eval_stage1_51_checkpoints.py --dna_cache) to skip "
+                        "live Evo2 during the half-epoch 290 eval. Cache misses fall back to "
+                        "live Evo2, so a val/test-only cache is safe. Training itself always "
+                        "runs Evo2 live (unaffected — this only scopes the eval calls).")
     p.add_argument("--seed",                  type=int, default=42,
                    help="Random seed for reproducibility (data shuffling, sampling)")
     p.add_argument("--use_gate",             action="store_true", default=False,

@@ -22,6 +22,17 @@
 ##
 ## Usage:
 ##   STAGE1_CKPT=<start weights> RFT_TRACES=<selected.jsonl> bash train/train_07_selfadaptive.sh [gpu_id]
+##
+## STAGE1_CKPT accepts EITHER:
+##   * a single file  — a Stage 1.5.1 model.pt / Stage 1 .ckpt (the original path), or
+##   * a checkpoint DIRECTORY — e.g. a train_06b GRPO checkpoint-XXXX. The loader
+##     detects pytorch_model.bin / model.safetensors / model.pt (+ shards) and also
+##     loads that dir's thinking_gate.pt + dna_injector.pt, so the FULL w9-native
+##     state transfers (backbone + gate + injector), not just the backbone.
+##   RFT-on-GRPO example (w9-native start — best odds the self-emission doesn't
+##   degenerate into empty-latent / "Step N:" loops under teacher forcing):
+##     STAGE1_CKPT=/scratch/.../train_06b_stage3_grpo_optB_spsa/checkpoint-1544 \
+##       RFT_TRACES=train/rft/rft_selfadaptive.jsonl bash train/train_07_selfadaptive.sh 0
 
 ## ── Configuration ─────────────────────────────────────────────────────────────
 CONDA_ENV=dna_env
@@ -34,11 +45,25 @@ OUTPUT_DIR=${OUTPUT_DIR:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_07_se
 SEED=${SEED:-42}
 EPOCHS=${EPOCHS:-2}                 # passes over the RFT data
 LR=${LR:-1e-5}                      # below Stage 1.51's 2e-5 (fine-tuning a strong model)
+## HALF_EPOCH_EVAL=1: at 50% and 100% of every epoch, save a checkpoint
+## (epochPP_half / _full — RFT drops the meaningless "sSS_" curriculum prefix) AND run a
+## greedy accuracy eval on val+test (290), tracking the accuracy-best into
+## $OUTPUT_DIR/best_acc/. EVAL_BAN_LATENT=1 forces a latent-free number; default 0 =
+## latents allowed (self-emit, the RFT target).
+HALF_EPOCH_EVAL=${HALF_EPOCH_EVAL:-1}
+EVAL_BAN_LATENT=${EVAL_BAN_LATENT:-0}
+## DNA_CACHE: precomputed {input_ids_bytes: embedding} map (same as sample_traces.sh /
+## test_04d's cache) to skip live Evo2 during the half-epoch 290 eval only. Cache misses
+## fall back to live Evo2, so a val/test-only cache is safe. Training itself is unaffected
+## (always live Evo2). Empty/missing = eval always runs live (slower but still correct).
+DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
 ## ─────────────────────────────────────────────────────────────────────────────
 
-## Start weights: default to the best Stage 1.5.1 correctness checkpoint (s04_pass02).
-## The RFT completions come from GRPO sampling, but training the strong SFT base to
-## self-emit is cleaner than starting from a HF-Trainer GRPO checkpoint dir.
+## Start weights (file OR GRPO checkpoint dir — see Usage above). Default: the best
+## Stage 1.5.1 correctness checkpoint (s04_pass02). For self-EMISSION, prefer a
+## train_06b GRPO checkpoint dir instead: its backbone is already w9-native (trained
+## through the free-generation loop), which the teacher-forced SFT base is not — that
+## mismatch is what made the SFT-init run degenerate when self-emitting.
 STAGE1_CKPT=${STAGE1_CKPT:-/scratch/tanmoyh_iitp/GenoMorph/checkpoints/train_04_stage1_51/s04_pass02/model.pt}
 
 if [ -z "${RFT_TRACES:-}" ]; then
@@ -48,6 +73,11 @@ if [ -z "${RFT_TRACES:-}" ]; then
 fi
 if [ ! -f "$RFT_TRACES" ]; then
     echo "ERROR: RFT_TRACES not found: $RFT_TRACES"
+    exit 1
+fi
+## STAGE1_CKPT may be a file (Stage 1/1.5 ckpt) or a dir (GRPO checkpoint) — accept both.
+if [ ! -f "$STAGE1_CKPT" ] && [ ! -d "$STAGE1_CKPT" ]; then
+    echo "ERROR: STAGE1_CKPT not found (need a model file or a checkpoint dir): $STAGE1_CKPT"
     exit 1
 fi
 
@@ -70,6 +100,7 @@ echo "CUDA:          $CUDA_VISIBLE_DEVICES"
 echo "Start ckpt:    $STAGE1_CKPT"
 echo "RFT traces:    $RFT_TRACES"
 echo "Output dir:    $OUTPUT_DIR"
+echo "Half-epoch eval: $HALF_EPOCH_EVAL (ban_latent=$EVAL_BAN_LATENT dna_cache=${DNA_CACHE:-none})"
 echo "Epochs:        $EPOCHS   LR: $LR"
 nvidia-smi
 
@@ -80,8 +111,15 @@ else
     KEGG_ARG="--kegg_dataset $KEGG_DATASET"
 fi
 
-## start_latent_step == max_latent_steps -> a single "curriculum" pass set; the RFT
-## branch ignores the curriculum entirely. passes_per_step is the epoch count.
+## Optional half-epoch save + val+test(290) accuracy eval flags
+EXTRA_EVAL=()
+[ "$HALF_EPOCH_EVAL" = "1" ] && EXTRA_EVAL+=(--half_epoch_eval)
+[ "$EVAL_BAN_LATENT" = "1" ] && EXTRA_EVAL+=(--eval_ban_latent)
+[ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA_EVAL+=(--eval_dna_cache "$DNA_CACHE")
+
+## No --start_latent_step/--max_latent_steps: RFT mode (--rft_traces) forces the outer
+## curriculum loop to a single iteration in train_latent_sft.py itself (s is never read by
+## the self_adaptive branch). passes_per_step is the epoch count.
 stdbuf -oL -eL python train_latent_sft.py \
     --stage1_ckpt            "$STAGE1_CKPT" \
     --rft_traces             "$RFT_TRACES" \
@@ -91,8 +129,6 @@ stdbuf -oL -eL python train_latent_sft.py \
     --dna_model_name         evo2_7b_base \
     --dna_embedding_layer    blocks.28.mlp.l3 \
     --entropy_mode           global \
-    --start_latent_step      4 \
-    --max_latent_steps       4 \
     --passes_per_step        "$EPOCHS" \
     --batch_size             1 \
     --grad_accum             8 \
@@ -107,7 +143,8 @@ stdbuf -oL -eL python train_latent_sft.py \
     --cache_dir              "$CACHE_DIR" \
     --device                 cuda \
     --seed                   "$SEED" \
-    --use_gate
+    --use_gate \
+    "${EXTRA_EVAL[@]}"
 
 echo ""
 echo "=== Self-adaptive RFT done. Weights in $OUTPUT_DIR/best/ ==="
