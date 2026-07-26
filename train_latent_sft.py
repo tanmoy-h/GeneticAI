@@ -175,6 +175,68 @@ def load_start_state_dict_from_dir(ckpt_dir: str) -> Dict[str, torch.Tensor]:
         f"found in checkpoint dir: {ckpt_dir}")
 
 
+def merge_grpo_lora_state_dict(
+    state: Dict[str, torch.Tensor], lora_r: int = 16, lora_alpha: int = 32,
+) -> Dict[str, torch.Tensor]:
+    """train_06b's _prep_for_training wraps model.text_model in PEFT LoRA
+    (adaptive_latent_grpo.py:306, get_peft_model) before training, so a GRPO
+    checkpoint's pytorch_model.bin has PEFT-prefixed keys
+    ("text_model.base_model.model.model...." + lora_A/lora_B/base_layer), not the
+    plain "text_model.model...." names a non-PEFT DNALLMModel.state_dict() expects.
+    Loading those keys strict=False into a plain model SILENTLY DROPS the entire
+    LoRA fine-tuning (all of it lands in "unexpected", base weights stay at
+    untouched pretrained values in "missing") — the checkpoint's actual GRPO
+    adaptation never reaches the model. This merges lora_B @ lora_A * (alpha/r)
+    into each base weight and strips the PEFT prefixes, mirroring
+    adaptive_latent_grpo.py::_load_sft_checkpoint's raw-.bin branch (merge_lora=True)
+    exactly so RFT starts from the ACTUAL GRPO-adapted weights.
+    No-op (returns state unchanged) if no PEFT-prefixed keys are present."""
+    peft_inner = "text_model.base_model.model.model."
+    peft_outer = "text_model.base_model.model."
+    if not any(k.startswith(peft_inner) for k in state):
+        return state   # not a PEFT checkpoint — nothing to merge
+
+    _LORA_TAGS = ("lora_A", "lora_B", "lora_embedding", "lora_magnitude")
+    remapped: Dict[str, torch.Tensor] = {}
+    lora_a_map: Dict[str, torch.Tensor] = {}
+    lora_b_map: Dict[str, torch.Tensor] = {}
+
+    for k, v in state.items():
+        if k.startswith(peft_inner):
+            stripped = k[len(peft_inner):]
+            new_k    = "text_model.model." + stripped
+            if any(tag in stripped for tag in _LORA_TAGS):
+                if "lora_A" in stripped:
+                    lora_a_map[stripped.split(".lora_A.")[0]] = v
+                elif "lora_B" in stripped:
+                    lora_b_map[stripped.split(".lora_B.")[0]] = v
+                continue
+            remapped[new_k.replace(".base_layer.", ".")] = v
+        elif k.startswith(peft_outer):
+            new_k = "text_model." + k[len(peft_outer):]
+            if any(tag in new_k for tag in _LORA_TAGS):
+                continue
+            remapped[new_k.replace(".base_layer.", ".")] = v
+        else:
+            remapped[k] = v
+
+    scaling  = lora_alpha / lora_r
+    merged_n = 0
+    for mod_key, A in lora_a_map.items():
+        if mod_key not in lora_b_map:
+            continue
+        B        = lora_b_map[mod_key]
+        full_key = "text_model.model." + mod_key + ".weight"
+        if full_key not in remapped:
+            continue
+        remapped[full_key] = remapped[full_key] + \
+            (B.to(remapped[full_key].dtype) @ A.to(remapped[full_key].dtype)) * scaling
+        merged_n += 1
+    print(f"  [LoRA merge] Detected PEFT structure — merged {merged_n} LoRA adapters "
+          f"(alpha={lora_alpha}, r={lora_r}, scale={scaling:.3f}).")
+    return remapped
+
+
 # ── Step span detection ───────────────────────────────────────────────────────
 
 def find_step_content_spans(
@@ -1256,6 +1318,8 @@ def train(args):
         # (vocab 151675), so add them BEFORE loading so embed/lm_head shapes match.
         ensure_latent_tokens(tokenizer, model)
         state = load_start_state_dict_from_dir(args.stage1_ckpt)
+        state = merge_grpo_lora_state_dict(
+            state, lora_r=args.start_lora_r, lora_alpha=args.start_lora_alpha)
         clean = {(k[6:] if k.startswith("model.") else k): v for k, v in state.items()}
         missing, unexpected = model.load_state_dict(clean, strict=False)
         _gate_src_dir = args.stage1_ckpt
@@ -1797,6 +1861,13 @@ def parse_args():
     p.add_argument("--eval_ban_latent",       action="store_true", default=False,
                    help="Ban latent tokens during the half-epoch 290 eval (latent-free "
                         "number). Default off = latents allowed (self-emit, the RFT target).")
+    p.add_argument("--start_lora_r",          type=int, default=16,
+                   help="LoRA rank used to train a GRPO-checkpoint --stage1_ckpt DIR "
+                        "(train_06b default: 16). Only used to scale the LoRA merge "
+                        "(merge_grpo_lora_state_dict) when starting from such a dir.")
+    p.add_argument("--start_lora_alpha",      type=int, default=32,
+                   help="LoRA alpha used to train a GRPO-checkpoint --stage1_ckpt DIR "
+                        "(train_06b default: 32). See --start_lora_r.")
     p.add_argument("--eval_dna_cache",        default=None,
                    help="Path to a precomputed {input_ids_bytes: embedding} DNA cache "
                         "(same format as eval_stage1_51_checkpoints.py --dna_cache) to skip "
