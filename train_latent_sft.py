@@ -786,10 +786,10 @@ def generate_samples(
     suppress_latent_ids: List[int] = None,
 ) -> List[str]:
     """
-    Run DNA-conditioned sampling on a few val examples and print GT vs output.
-    Prompts the model with everything up to and including <think>\\n, then lets
-    it generate freely — reveals whether step structure and Answer: are preserved.
-    Returns the generated strings for WandB logging.
+    Run DNA-conditioned sampling on the first n_samples val examples (deterministic,
+    not random) and print GT vs output. Prompts the model with everything up to and
+    including <think>\\n, then lets it generate freely — reveals whether step structure
+    and Answer: are preserved. Returns the generated strings for WandB logging.
     model.generate() uses inputs_embeds internally, so output is new tokens only.
     """
     model.eval()
@@ -802,7 +802,7 @@ def generate_samples(
                       if id is not None and id != tokenizer.unk_token_id})
 
     think_tag = "<think>\n"
-    indices   = random.sample(range(len(val_rows)), min(n_samples, len(val_rows)))
+    indices   = list(range(min(n_samples, len(val_rows))))   # first N (deterministic, not random)
 
     sep = "=" * 64
     print(f"\n{sep}\n  SAMPLE GENERATIONS  {label}\n{sep}")
@@ -1592,6 +1592,11 @@ def train(args):
             logged_sample = False   # print one decoded sample per curriculum step
             _half_at      = max(1, len(train_loader) // 2)   # 50%-of-epoch trigger point
             _did_half     = False
+            # SAMPLE GENERATIONS print fires at 1/3 and 2/3 of the pass (3/3 already
+            # happens unconditionally in the existing end-of-pass block below).
+            _third1_at, _third2_at = (max(1, len(train_loader) * 1 // 3),
+                                       max(1, len(train_loader) * 2 // 3))
+            _did_third1, _did_third2 = False, False
 
             for batch_ids, dna_tok, idx_map, prompt_ends, _ in train_loader:
                 B = batch_ids.shape[0]
@@ -1667,12 +1672,22 @@ def train(args):
                             "train/lr":            scheduler.get_last_lr()[0],
                         }, step=global_step)
 
-                if args.sample_every > 0 and global_step % args.sample_every == 0:
+                # SAMPLE GENERATIONS at 1/3 and 2/3 of the pass (3/3 = the existing
+                # unconditional end-of-pass block below). Replaces the old fixed
+                # step-count cadence, which didn't line up with epoch progress.
+                _fire_third = None
+                if args.sample_every > 0:
+                    if not _did_third1 and n_batches >= _third1_at:
+                        _did_third1, _fire_third = True, "1/3"
+                    elif not _did_third2 and n_batches >= _third2_at:
+                        _did_third2, _fire_third = True, "2/3"
+                if _fire_third is not None:
                     gens = generate_samples(
                         model, model.processor, val_rows, device,
                         n_samples           = args.n_gen_samples,
                         max_new_tokens      = args.gen_max_new_tokens,
-                        label               = f"s={s} step={global_step}",
+                        label               = (f"pass={inner_pass+1} [{_fire_third} epoch, step={global_step}]" if _rft
+                                                else f"s={s} pass={inner_pass+1} [{_fire_third} epoch, step={global_step}]"),
                         suppress_latent_ids = [start_id, end_id, latent_id],
                     )
                     if use_wandb:
@@ -1848,9 +1863,11 @@ def parse_args():
     p.add_argument("--wandb_project",         default=None)
     p.add_argument("--wandb_entity",          default=None)
     p.add_argument("--sample_every",          type=int,   default=200,
-                   help="Log sample generations every N steps during training (0=disable)")
-    p.add_argument("--n_gen_samples",         type=int,   default=2,
-                   help="Number of val examples to generate from")
+                   help="Enable/disable (>0/0) the periodic SAMPLE GENERATIONS print. "
+                        "Fires at 1/3 and 2/3 of every pass (3/3 already happens "
+                        "unconditionally at end-of-pass) — no longer a step-count interval.")
+    p.add_argument("--n_gen_samples",         type=int,   default=10,
+                   help="Number of val examples to generate from (first N, deterministic)")
     p.add_argument("--gen_max_new_tokens",    type=int,   default=800,
                    help="Max new tokens per generation sample")
     p.add_argument("--half_epoch_eval",       action="store_true", default=False,
