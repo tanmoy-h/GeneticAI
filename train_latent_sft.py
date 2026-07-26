@@ -784,6 +784,7 @@ def generate_samples(
     repetition_penalty: float = 1.3,
     label: str = "",
     suppress_latent_ids: List[int] = None,
+    self_emit_half: bool = False,
 ) -> List[str]:
     """
     Run DNA-conditioned sampling on the first n_samples val examples (deterministic,
@@ -791,6 +792,13 @@ def generate_samples(
     including <think>\\n, then lets it generate freely — reveals whether step structure
     and Answer: are preserved. Returns the generated strings for WandB logging.
     model.generate() uses inputs_embeds internally, so output is new tokens only.
+
+    self_emit_half=True (RFT/self-adaptive runs only) splits the n_samples in half: the
+    first ceil(n/2) ban latent tokens (fluency check — plain-text reasoning, unchanged
+    behavior), the remaining floor(n/2) allow them (self-emission check — does the model
+    actually fire <start-latent>/<latent>/<end-latent> when free to). Curriculum SFT
+    (self_emit_half=False, the default) was never trained to self-emit, so every sample
+    stays latent-free there — showing a "self-emit" half would just be untrained noise.
     """
     model.eval()
     tokenizer = processor.tokenizer
@@ -803,6 +811,9 @@ def generate_samples(
 
     think_tag = "<think>\n"
     indices   = list(range(min(n_samples, len(val_rows))))   # first N (deterministic, not random)
+    # ceil(n/2): first half latent-free, rest self-emit (only when self_emit_half=True —
+    # otherwise n_ban == len(indices) so every sample stays latent-free).
+    n_ban     = -(-len(indices) // 2) if self_emit_half else len(indices)
 
     sep = "=" * 64
     print(f"\n{sep}\n  SAMPLE GENERATIONS  {label}\n{sep}")
@@ -831,7 +842,9 @@ def generate_samples(
         dna_tok        = {k: v.to(device) for k, v in batch["dna_tokenized"].items()}
         idx_map        = list(batch["batch_idx_map"])
 
-        bad_words = [[t] for t in suppress_latent_ids] if suppress_latent_ids else None
+        _ban_this   = suppress_latent_ids is not None and i < n_ban
+        bad_words   = [[t] for t in suppress_latent_ids] if _ban_this else None
+        _mode_tag   = "latent-free" if (suppress_latent_ids is None or _ban_this) else "self-emit"
         with torch.no_grad():
             out_ids = model.generate(
                 input_ids            = input_ids,
@@ -853,7 +866,7 @@ def generate_samples(
         generated = tokenizer.decode(out_ids[0], skip_special_tokens=False)
         generated_texts.append(generated)
 
-        print(f"\n--- Sample {i + 1} ---")
+        print(f"\n--- Sample {i + 1} [{_mode_tag}] ---")
         print(f"[GT ]\n{_compact_dna(gt_text)}")
         print(f"\n[GEN]\n<think>\n{generated}")  # prepend <think> (it was in the prompt)
 
@@ -1530,6 +1543,27 @@ def train(args):
                 torch.save(dna_injector.state_dict(),  os.path.join(ba_dir, "dna_injector.pt"))
             print(f"  ★ New best eval290 accuracy={best_acc:.4f} → {ba_dir}/")
 
+    # ── Baseline SAMPLE GENERATIONS before any training step ───────────────────
+    # Reference point so the 1/3, 2/3, end-of-pass prints later can be compared
+    # against the model's behavior prior to this RFT/curriculum run.
+    if args.sample_every > 0:
+        gens = generate_samples(
+            model, model.processor, val_rows, device,
+            n_samples           = args.n_gen_samples,
+            max_new_tokens      = args.gen_max_new_tokens,
+            label               = "before training [step=0]",
+            suppress_latent_ids = [start_id, end_id, latent_id],
+            self_emit_half      = _rft,
+        )
+        if use_wandb:
+            import wandb
+            wandb.log({
+                "samples/before_training": wandb.Table(
+                    columns=["step", "generated"],
+                    data=[[0, g] for g in gens],
+                )
+            }, step=0)
+
     # ── Outer curriculum loop: s = start_latent_step .. max_latent_steps ────────
     # RFT mode (self_adaptive): s is never read by process_batch's self_adaptive branch
     # (it teacher-forces the completion as-is, no curriculum). Force a single iteration
@@ -1689,6 +1723,7 @@ def train(args):
                         label               = (f"pass={inner_pass+1} [{_fire_third} epoch, step={global_step}]" if _rft
                                                 else f"s={s} pass={inner_pass+1} [{_fire_third} epoch, step={global_step}]"),
                         suppress_latent_ids = [start_id, end_id, latent_id],
+                        self_emit_half      = _rft,
                     )
                     if use_wandb:
                         import wandb
@@ -1755,6 +1790,7 @@ def train(args):
                 label               = (f"pass={inner_pass+1} [end-of-pass]" if _rft
                                         else f"s={s} pass={inner_pass+1} [end-of-pass]"),
                 suppress_latent_ids = [start_id, end_id, latent_id],
+                self_emit_half      = _rft,
             )
             if use_wandb:
                 import wandb
