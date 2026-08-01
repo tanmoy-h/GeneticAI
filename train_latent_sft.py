@@ -934,6 +934,7 @@ def evaluate_accuracy(
     label: str = "",
     step: int = 0,
     dna_cache: Optional[Dict[bytes, torch.Tensor]] = None,
+    trace_path: Optional[str] = None,
 ) -> Dict[str, float]:
     """Greedy-decode accuracy on `rows` (the val+test 290 probe). Extracts 'Answer:' and
     scores gt-in-pred, matching eval_stage1_51_checkpoints.py. Prints the standard metric
@@ -943,7 +944,11 @@ def evaluate_accuracy(
     dna_cache: preloaded {input_ids.tobytes(): embedding} map (same format as
     eval_stage1_51_checkpoints.py's --dna_cache) to skip live Evo2 for cached sequences —
     scoped to this call only (model._evo2_embed is restored after, so training resumes
-    unaffected; dna_model stays on GPU throughout since training needs it live right after)."""
+    unaffected; dna_model stays on GPU throughout since training needs it live right after).
+    trace_path: if set, stream one JSON object per row (index, question, ground_truth,
+    predicted_answer, is_correct, gen_time_sec, full_generation) to this file — the actual
+    reasoning traces behind the returned accuracy/time, which this function otherwise
+    discards after scoring (`gen` is computed per row but never normally kept)."""
     import time as _time
     model.eval()
     tokenizer = processor.tokenizer
@@ -972,8 +977,12 @@ def evaluate_accuracy(
     details: List[Tuple[str, str, bool]] = []
     total_time = 0.0
     n_timed    = 0
+    _trace_f = None
+    if trace_path:
+        import json as _json
+        _trace_f = open(trace_path, "w", encoding="utf-8")
     try:
-        for row in rows:
+        for _i, row in enumerate(rows):
             full_text     = row["text"]
             gt            = _extract_answer(row["answer"]) or \
                             row["answer"].replace("Answer:", "").replace("<|im_end|>", "").strip()
@@ -1006,18 +1015,37 @@ def evaluate_accuracy(
                     eos_token_id         = stop_ids,
                     bad_words_ids        = bad_words,
                 )
-                total_time += _time.perf_counter() - _t0
+                _dt = _time.perf_counter() - _t0
+                total_time += _dt
                 n_timed    += 1
             except Exception as e:
                 print(f"  [eval290] gen error ({e}); scoring as wrong")
                 details.append(("", gt, False))
+                if _trace_f is not None:
+                    _trace_f.write(_json.dumps({
+                        "index": _i, "question": row.get("user_text", ""),
+                        "ground_truth": gt, "predicted_answer": "", "is_correct": False,
+                        "gen_time_sec": None, "error": str(e), "full_generation": "",
+                    }, ensure_ascii=False) + "\n")
+                    _trace_f.flush()
                 continue
             gen  = tokenizer.decode(out_ids[0], skip_special_tokens=False)
             pred = _extract_answer(gen)
-            details.append((pred, gt, _is_correct(pred, gt)))
+            ok   = _is_correct(pred, gt)
+            details.append((pred, gt, ok))
+            if _trace_f is not None:
+                _trace_f.write(_json.dumps({
+                    "index": _i, "question": row.get("user_text", ""),
+                    "ground_truth": gt, "predicted_answer": pred, "is_correct": ok,
+                    "gen_time_sec": round(_dt, 3), "full_generation": gen,
+                }, ensure_ascii=False) + "\n")
+                _trace_f.flush()
     finally:
         if dna_cache is not None:
             model._evo2_embed = _orig_evo2_embed   # restore so training resumes on live Evo2
+        if _trace_f is not None:
+            _trace_f.close()
+            print(f"  [eval290] traces → {trace_path}")
 
     n_total   = len(details)
     n_correct = sum(1 for _, _, ok in details if ok)
