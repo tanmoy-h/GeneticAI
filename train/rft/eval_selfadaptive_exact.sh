@@ -32,6 +32,11 @@ KEGG_CSV=${KEGG_CSV:-}
 OUTPUT_DIR=${OUTPUT_DIR:-$(pwd)/test/log}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 BAN_LATENT=${BAN_LATENT:-0}          # 1 = latent-free comparison number
+## OUTPUT_PREFIX: default derives from $(basename "$CKPT"), which collides for named vs
+## anon runs (both checkpoints are typically named "best_acc" under different parent
+## dirs) -- auto-suffix "_anon" whenever KEGG_CSV is set so they never overwrite each
+## other in the same OUTPUT_DIR. Set OUTPUT_PREFIX explicitly to override entirely.
+OUTPUT_PREFIX=${OUTPUT_PREFIX:-}
 
 CKPT=${CKPT:-}
 DNA_CACHE=${DNA_CACHE:-/scratch/tanmoyh_iitp/GenoMorph/cache/dna_embeddings_kegg_2048.pt}
@@ -55,11 +60,13 @@ export CUDA_VISIBLE_DEVICES=${1:-0}
 export PYTORCH_ALLOC_CONF=expandable_segments:True
 
 _MODE=$([ "$BAN_LATENT" = "1" ] && echo "latentfree" || echo "selfadaptive")
-LOG="${LOG:-$OUTPUT_DIR/rft_exact_${_MODE}_$(basename "$CKPT")_$(date +%Y%m%d_%H%M%S)_run.log}"
+_ANON_TAG=$([ -n "$KEGG_CSV" ] && echo "_anon" || echo "")
+PREFIX="${OUTPUT_PREFIX:-rft_exact_${_MODE}_$(basename "$CKPT")${_ANON_TAG}}"
+LOG="${LOG:-$OUTPUT_DIR/${PREFIX}_$(date +%Y%m%d_%H%M%S)_run.log}"
 exec > >(tee "$LOG") 2>&1
 echo "Command:    bash $0 $*"
 echo "Checkpoint: $CKPT"
-echo "Mode:       $_MODE   ban_latent=$BAN_LATENT"
+echo "Mode:       $_MODE   ban_latent=$BAN_LATENT   prefix=$PREFIX"
 nvidia-smi
 
 if [ -n "$KEGG_CSV" ]; then
@@ -78,7 +85,7 @@ stdbuf -oL -eL python eval_selfadaptive_exact.py \
     --max_new_tokens        "$MAX_NEW_TOKENS" \
     --cache_dir             "$CACHE_DIR" \
     --output_dir            "$OUTPUT_DIR" \
-    --output_prefix         "rft_exact_${_MODE}_$(basename "$CKPT")" \
+    --output_prefix         "$PREFIX" \
     "${EXTRA[@]}"
 
 echo ""
