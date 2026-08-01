@@ -54,6 +54,10 @@ with open("$KEGG_CSV", "w", newline="", encoding="utf-8") as f:
         for row in split_ds:
             row = dict(row)
             row["split"] = mapped
+            # upload_anon_dataset.py renames anon_question->question, anon_reasoning
+            # ->reasoning on push (drop-in replacement for wanglab/kegg) -- map back.
+            row["anon_question"]  = row.get("question", "")
+            row["anon_reasoning"] = row.get("reasoning", "")
             writer.writerow(row)
 print(f"Saved {sum(len(s) for s in ds.values())} records to $KEGG_CSV")
 PYEOF
