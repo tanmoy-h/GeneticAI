@@ -25,6 +25,7 @@ MAX_TOKENS=${MAX_TOKENS:-512}
 TEMPERATURE=${TEMPERATURE:-0}
 RPM_LIMIT=${RPM_LIMIT:-500}
 LIMIT=${LIMIT:-}                      # max records to evaluate (empty = all 290)
+ONLY_INDEX=${ONLY_INDEX:-}            # evaluate a single record (0-indexed, matches the idx column)
 ## ─────────────────────────────────────────────────────────────────────────────
 
 if [ -z "${OPENAI_API_KEY:-}" ]; then
@@ -92,6 +93,11 @@ if [ -n "${LIMIT:-}" ]; then
     LIMIT_FLAG="--limit $LIMIT"
 fi
 
+ONLY_INDEX_FLAG=""
+if [ -n "${ONLY_INDEX:-}" ]; then
+    ONLY_INDEX_FLAG="--only_index $ONLY_INDEX"
+fi
+
 python testing/eval_gpt4o_mini.py \
     --csv          "$KEGG_CSV" \
     --out          "$OUT_CSV" \
@@ -101,7 +107,7 @@ python testing/eval_gpt4o_mini.py \
     --max_tokens   "$MAX_TOKENS" \
     --temperature  "$TEMPERATURE" \
     --rpm_limit    "$RPM_LIMIT" \
-    $RESUME_FLAG $LIMIT_FLAG
+    $RESUME_FLAG $LIMIT_FLAG $ONLY_INDEX_FLAG
 
 echo ""
 echo "=== Done. Results: ==="

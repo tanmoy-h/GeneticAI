@@ -124,6 +124,10 @@ def parse_args():
                    help="Skip rows already present in the output CSV")
     p.add_argument("--limit",   type=int, default=None,
                    help="Evaluate only the first N records (default: all)")
+    p.add_argument("--only_index", type=int, default=None,
+                   help="Evaluate only this single record. 0-indexed position within "
+                        "the --splits-filtered record list, matching the 'idx' column "
+                        "written to --out (e.g. 14 for the 15th record counting from 1).")
     return p.parse_args()
 
 
@@ -138,7 +142,14 @@ def main():
     records = load_records(args.csv, args.splits)
     if args.limit:
         records = records[:args.limit]
-    print(f"Loaded {len(records)} records from splits: {args.splits}")
+    indexed_records = list(enumerate(records))
+    if args.only_index is not None:
+        indexed_records = [(i, r) for i, r in indexed_records if i == args.only_index]
+        if not indexed_records:
+            sys.exit(f"--only_index {args.only_index} out of range "
+                      f"(0..{len(records) - 1} for splits {args.splits})")
+    print(f"Loaded {len(records)} records from splits: {args.splits}"
+          + (f" -- only_index={args.only_index}" if args.only_index is not None else ""))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +176,7 @@ def main():
     per_class: Dict[str, Dict] = {}  # gt → {tp, fp, fn}
     min_delay = 60.0 / args.rpm_limit  # seconds between requests
 
-    for idx, row in enumerate(records):
+    for idx, row in indexed_records:
         if idx in done:
             n_total += 1
             # count toward metrics from saved file (skip re-querying)
@@ -237,7 +248,7 @@ def main():
         out_f.flush()
 
         elapsed = time.time() - t0
-        print(f"  [{idx+1:3d}/{len(records)}] gt={gt!r:30s}  pred={pred!r:30s}  {'✓' if correct else '✗'}")
+        print(f"  [idx={idx:3d}/{len(indexed_records)}] gt={gt!r:30s}  pred={pred!r:30s}  {'✓' if correct else '✗'}")
 
         # Rate limiting
         sleep_for = max(0.0, min_delay - elapsed)
