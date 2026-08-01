@@ -16,8 +16,18 @@
 ## Compare time= vs the controller path (run without CONTROLLER=0 / drop --self_adaptive).
 ##
 ## Usage:
-##   CKPT=<...>/train_07_selfadaptive/best/model.pt SPLIT=both bash train/rft/eval_selfadaptive.sh [gpu_ids]
-##   CONTROLLER=1 CKPT=<...> bash train/rft/eval_selfadaptive.sh   # baseline (controller, no self_adaptive)
+##   NO_LORA=1 CKPT=<...>/train_07_selfadaptive/best_acc/model.pt SPLIT=both \
+##     bash train/rft/eval_selfadaptive.sh [gpu_ids]
+##   CONTROLLER=1 CKPT=<GRPO checkpoint dir> bash train/rft/eval_selfadaptive.sh   # baseline (controller, no --self_adaptive)
+##
+## NO_LORA=1 is REQUIRED for train_07_selfadaptive RFT checkpoints (best/ or best_acc/):
+## RFT trains the full backbone, no LoRA/PEFT at all. Leaving NO_LORA=0 (the default,
+## correct for GRPO/train_06b checkpoints, which ARE PEFT-wrapped) against a plain RFT
+## checkpoint LoRA-wraps the eval model anyway, and strict=False silently drops nearly
+## every weight on load -- no error, just base-Qwen + random LoRA generating fluent but
+## untrained rambling (pred='' / latent=0/0 / tok=<max> on every single sample). Check
+## the run log for "missing=" counts near "Loaded LLM weights" if predictions look wrong
+## -- a large missing count means this happened.
 
 CONDA_ENV=dna_env
 CACHE_DIR=~/.cache/huggingface
@@ -28,6 +38,7 @@ SPLIT=${SPLIT:-both}
 N_SAMPLES=${N_SAMPLES:--1}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-800}
 CONTROLLER=${CONTROLLER:-0}          # 1 = baseline (controller mode, no --self_adaptive)
+NO_LORA=${NO_LORA:-0}                # 1 = plain full-fine-tune checkpoint (RFT) -- REQUIRED for train_07_selfadaptive
 
 CKPT=${CKPT:-}
 THETA_LOW_PT=${THETA_LOW_PT:-}
@@ -61,7 +72,7 @@ LOG="${LOG:-$OUTPUT_DIR/rft_${_MODE}_$(basename "$CKPT" .pt)_$(date +%Y%m%d_%H%M
 exec > >(tee "$LOG") 2>&1
 echo "Command:    bash $0 $*"
 echo "Checkpoint: $CKPT"
-echo "Mode:       $_MODE   split=$SPLIT  n=$N_SAMPLES"
+echo "Mode:       $_MODE   split=$SPLIT  n=$N_SAMPLES   no_lora=$NO_LORA"
 nvidia-smi
 
 if [ -n "$KEGG_CSV" ]; then
@@ -72,6 +83,7 @@ fi
 
 EXTRA=()
 [ "$CONTROLLER" != "1" ] && EXTRA+=(--self_adaptive)
+[ "$NO_LORA" = "1" ] && EXTRA+=(--no_lora)
 [ "$NO_THETA_PT" = "1" ] && EXTRA+=(--no_theta_pt)
 [ -n "$THETA_LOW_PT" ] && [ -f "$THETA_LOW_PT" ] && EXTRA+=(--theta_low_pt "$THETA_LOW_PT")
 [ -n "$DNA_CACHE" ] && [ -f "$DNA_CACHE" ] && EXTRA+=(--dna_cache "$DNA_CACHE")

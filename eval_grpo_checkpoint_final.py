@@ -149,6 +149,15 @@ def parse_args():
     p.add_argument("--truncate_dna_per_side", type=int, default=1024)
     p.add_argument("--lora_r",                type=int, default=16)
     p.add_argument("--lora_alpha",            type=int, default=32)
+    p.add_argument("--no_lora",               action="store_true", default=False,
+                   help="Skip LoRA-wrapping the text model. REQUIRED for plain "
+                        "full-fine-tune checkpoints (e.g. train_07_selfadaptive RFT, "
+                        "which trains the whole backbone with no LoRA/PEFT at all) -- "
+                        "wrapping a plain checkpoint's target model in a fresh LoRA "
+                        "adapter and loading with strict=False silently drops nearly "
+                        "every weight (no error), leaving the model at base-Qwen + "
+                        "random LoRA. Leave unset (default) for GRPO/train_06b "
+                        "checkpoints, which ARE PEFT/LoRA-wrapped.")
 
     # w9 LatentSp thresholds (used if --theta_low_pt not provided)
     p.add_argument("--theta_low",      type=float, default=1.0,
@@ -203,6 +212,11 @@ def build_model(args, device):
         use_dna_gate         = False,
         device               = "cuda",
     ).to(device)
+    if getattr(args, "no_lora", False):
+        # Plain full-fine-tune checkpoint (e.g. train_07_selfadaptive RFT) — no LoRA
+        # wrapper. See --no_lora help text: wrapping here would silently drop the
+        # checkpoint's weights on load (strict=False, structure mismatch).
+        return model
     target_modules = get_target_modules(model)
     lora_config = LoraConfig(
         r                 = args.lora_r,
@@ -216,6 +230,27 @@ def build_model(args, device):
     model.text_model = prepare_model_for_kbit_training(model.text_model)
     model.text_model = get_peft_model(model.text_model, lora_config)
     return model
+
+
+def _report_load(model, sd: dict, label: str):
+    """model.load_state_dict(strict=False) + always print missing/unexpected counts.
+
+    strict=False silently drops anything that doesn't match — if the model's structure
+    (LoRA-wrapped or not) doesn't match this checkpoint, most/all keys can mismatch and
+    the checkpoint's weights never actually apply, leaving the model at its random/base
+    init with no error printed. This was previously silent (see --no_lora); now it
+    can't be.
+    """
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    print(f"  Loaded LLM weights ← {label}  (missing={len(missing)} unexpected={len(unexpected)})")
+    if missing:
+        print(f"    e.g. missing keys:    {missing[:3]}")
+    if unexpected:
+        print(f"    e.g. unexpected keys: {unexpected[:3]}")
+    if len(missing) > 20:
+        print(f"  WARNING: {len(missing)} missing keys — this checkpoint likely did NOT "
+              f"load correctly (e.g. --no_lora / PEFT-vs-plain structure mismatch). "
+              f"Do not trust this run's predictions.")
 
 
 def _load_llm_weights(ckpt: str, model, device):
@@ -234,8 +269,7 @@ def _load_llm_weights(ckpt: str, model, device):
     p = os.path.join(ckpt, "pytorch_model.bin")
     if os.path.exists(p):
         sd = torch.load(p, map_location=device, weights_only=True)
-        model.load_state_dict(sd, strict=False)
-        print(f"  Loaded LLM weights ← {p}")
+        _report_load(model, sd, p)
         return
 
     # 2. model.safetensors (single-file safetensors)
@@ -244,22 +278,19 @@ def _load_llm_weights(ckpt: str, model, device):
         try:
             from safetensors.torch import load_file as _st_load
             sd = _st_load(p, device=str(device))
-            model.load_state_dict(sd, strict=False)
-            print(f"  Loaded LLM weights ← {p}")
+            _report_load(model, sd, p)
             return
         except ImportError:
             pass  # fall through to torch.load attempt
         sd = torch.load(p, map_location=device, weights_only=True)
-        model.load_state_dict(sd, strict=False)
-        print(f"  Loaded LLM weights ← {p}")
+        _report_load(model, sd, p)
         return
 
     # 3. model.pt
     p = os.path.join(ckpt, "model.pt")
     if os.path.exists(p):
         sd = torch.load(p, map_location=device, weights_only=True)
-        model.load_state_dict(sd, strict=False)
-        print(f"  Loaded LLM weights ← {p}")
+        _report_load(model, sd, p)
         return
 
     # 4. sharded safetensors (model-00001-of-NNNNN.safetensors or pytorch_model-…)
@@ -271,8 +302,7 @@ def _load_llm_weights(ckpt: str, model, device):
                 merged = {}
                 for s in shards:
                     merged.update(_st_load(s, device=str(device)))
-                model.load_state_dict(merged, strict=False)
-                print(f"  Loaded LLM weights (sharded, {len(shards)} files) ← {ckpt}/{pat}")
+                _report_load(model, merged, f"{ckpt}/{pat} ({len(shards)} shards)")
                 return
             except ImportError:
                 break  # safetensors not installed, try .bin shards
@@ -283,8 +313,7 @@ def _load_llm_weights(ckpt: str, model, device):
         merged = {}
         for s in shards:
             merged.update(torch.load(s, map_location=device, weights_only=True))
-        model.load_state_dict(merged, strict=False)
-        print(f"  Loaded LLM weights (sharded, {len(shards)} .bin files) ← {ckpt}")
+        _report_load(model, merged, f"{ckpt} ({len(shards)} .bin shards)")
         return
 
     sys.exit(
